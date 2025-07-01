@@ -1,0 +1,38 @@
+# Arquivos de cache e bytecodes do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pastas de ambiente virtual
+# Se você usa virtualenv, venv, pyenv, etc., eles serão ignorados.
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Arquivos de configuração específicos do editor/IDE
+# Ignora a pasta de configurações do próprio VSCode para este projeto
+.vscode/
+
+# Arquivos de configuração com segredos
+# IMPORTANTE: Se o seu arquivo config.ini contém senhas, tokens ou
+# qualquer informação sensível, DESCOMENTE a linha abaixo (remova o #).
+# Se ele contém apenas configurações seguras e deve estar no repositório,
+# deixe a linha comentada.
+# config.ini
+
+# Arquivos de dependências e pacotes
+# Se você usar um gerenciador de pacotes, os pacotes baixados não irão para o Git.
+/node_modules
+/bower_components
+
+# Arquivos de banco de dados
+# Se seu programa cria um arquivo de banco de dados localmente.
+*.sqlite3
+*.db
+
+# Arquivos de log
+*.log
