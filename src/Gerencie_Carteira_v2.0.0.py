@@ -1,6 +1,5 @@
-#Essa versão busca no email, baixa o html na pasta correta, cria a planilha TESTE,
-#cola os dados formatados do jeito certo na planilha
-
+#Este programa identifica o email correto, baixa o html anexado na pasta correta,
+#copia os dados e cola no excel da base de dados do gerencie carteira corretamente
 
 
 import win32com.client
@@ -11,10 +10,13 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
-# Conectando ao Outlook
+# Caminho correto do Excel
+caminho_excel = r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário\Gerencie Carteira 25.05.07.xlsx"
+
+# Conectar ao Outlook
 outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
 
-# Acessando a caixa de entrada
+# Acessar a caixa de entrada
 inbox = outlook.GetDefaultFolder(6)  # 6 corresponde à pasta Inbox
 messages = inbox.Items
 
@@ -28,8 +30,7 @@ messages.Sort("[ReceivedTime]", False)
 emails_nao_lidos = [msg for msg in messages if msg.Subject == assunto_procurado and msg.UnRead]
 
 if emails_nao_lidos:
-    pasta_destino = r"C:\Users\comercial05\Documents\Gerencia Carteira\HTML"
-    caminho_excel = r"C:\Users\comercial05\Desktop\PROGRAMAS PYTHON\TESTE PYTHON\TESTE.xlsx"
+    pasta_destino = r"C:\Users\comercial05\Documents\Gerencie Carteira\HTML"
     dados = []
 
     for email in emails_nao_lidos:
@@ -71,26 +72,12 @@ if emails_nao_lidos:
         # Criar um DataFrame do pandas com a nova coluna "Data da Operação"
         df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data da Operação"])
 
-        # Converter colunas numéricas para valores reais com tratamento de erro
-        try:
-            df["CNPJ"] = pd.to_numeric(df["CNPJ"])
-        except ValueError:
-            pass  # Aqui você pode registrar ou tratar os erros de conversão, se necessário
-
-        try:
-            df["Razão Social"] = pd.to_numeric(df["Razão Social"])
-        except ValueError:
-            pass #Mesmo tratamento para a coluna "Razão Social"
-
-        try:
-            df["Alteração"] = pd.to_numeric(df["Alteração"])
-        except ValueError:
-            pass  # Mesmo tratamento para a coluna "Alteração"
-
+        # Garantir que os valores sejam strings
         df["CNPJ"] = df["CNPJ"].astype(str)
         df["Razão Social"] = df["Razão Social"].astype(str)
-        df["Ateração"] = df["Alteração"].astype(str)
+        df["Alteração"] = df["Alteração"].astype(str)
 
+        # Adicionar um espaço não-quebrante e um espaço convencional
         df["CNPJ"] = df["CNPJ"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
         df["Razão Social"] = df["Razão Social"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
         df["Alteração"] = df["Alteração"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
@@ -98,27 +85,36 @@ if emails_nao_lidos:
         # Ordenar os dados do mais antigo para o mais novo
         df = df.sort_values(by="Data da Operação", ascending=True)
 
-        # Remover a última coluna repetida
-        df = df.iloc[:, :-1]  # Remove a última coluna do DataFrame
+        # Remover colunas desnecessárias e garantir que todas as colunas sejam mantidas
+        df = df.loc[:, ["CNPJ", "Razão Social", "Alteração", "Data da Operação"]]
 
         print(df)
 
-        # Escrever os dados no Excel
-        with pd.ExcelWriter(caminho_excel, mode="w", engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name="Dados", index=False, header=True)
-
-        # Carregar o arquivo Excel e excluir a primeira linha
+        # Carregar o arquivo Excel e acessar a segunda planilha diretamente
         wb = load_workbook(caminho_excel)
-        ws = wb["Dados"]
-        ws.delete_rows(1)  # Exclui a primeira linha (cabeçalhos)
 
-        # Aplicar alinhamento à coluna D (supondo que seja a de datas)
-        for cell in ws["D"]:  # Ajuste conforme necessário se a coluna for diferente
-            cell.alignment = Alignment(horizontal="center", vertical="top")
+        # Selecionar a segunda planilha baseada na posição, garantindo que seja "E-Mail BD"
+        ws = wb.worksheets[1]  # Segunda aba (índice começa do 0)
 
-        # Salvar as alterações no arquivo Excel
-        wb.save(caminho_excel)
-        print(f"Dados copiados para {caminho_excel}, com os mais antigos primeiro e a primeira linha removida.")
+        # Verificar se o nome da planilha corresponde ao esperado
+        if ws.title != "E-Mail BD":
+            print("⚠ A segunda planilha não tem o nome esperado. Verifique manualmente.")
+        else:
+            # Encontrar a primeira linha vazia
+            primeira_linha_vazia = ws.max_row + 1
+
+            # Inserir os dados na primeira linha disponível
+            for r_idx, row in enumerate(df.values, start=primeira_linha_vazia):
+                for c_idx, value in enumerate(row, start=1):
+                    ws.cell(row=r_idx, column=c_idx, value=value)
+
+            # Aplicar alinhamento à coluna D (Data da Operação)
+            for cell in ws["D"]:
+                cell.alignment = Alignment(horizontal="center", vertical="top")
+
+            # Salvar as alterações no arquivo Excel
+            wb.save(caminho_excel)
+            print(f"✅ Dados copiados corretamente para a planilha 'E-Mail BD' ({ws.title}) na primeira linha disponível!")
     else:
         print("Nenhuma tabela válida encontrada nos arquivos HTML.")
 else:
