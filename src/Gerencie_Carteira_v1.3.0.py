@@ -1,9 +1,15 @@
+#Essa versão busca no email, baixa o html na pasta correta, cria a planilha TESTE,
+#cola os dados formatados do jeito certo na planilha
+
+
+
 import win32com.client
 import os
 from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 # Conectando ao Outlook
 outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
@@ -65,8 +71,35 @@ if emails_nao_lidos:
         # Criar um DataFrame do pandas com a nova coluna "Data da Operação"
         df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data da Operação"])
 
+        # Converter colunas numéricas para valores reais com tratamento de erro
+        try:
+            df["CNPJ"] = pd.to_numeric(df["CNPJ"])
+        except ValueError:
+            pass  # Aqui você pode registrar ou tratar os erros de conversão, se necessário
+
+        try:
+            df["Razão Social"] = pd.to_numeric(df["Razão Social"])
+        except ValueError:
+            pass #Mesmo tratamento para a coluna "Razão Social"
+
+        try:
+            df["Alteração"] = pd.to_numeric(df["Alteração"])
+        except ValueError:
+            pass  # Mesmo tratamento para a coluna "Alteração"
+
+        df["CNPJ"] = df["CNPJ"].astype(str)
+        df["Razão Social"] = df["Razão Social"].astype(str)
+        df["Ateração"] = df["Alteração"].astype(str)
+
+        df["CNPJ"] = df["CNPJ"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
+        df["Razão Social"] = df["Razão Social"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
+        df["Alteração"] = df["Alteração"].apply(lambda x: "\xa0 " + x if isinstance(x, str) else x)
+
         # Ordenar os dados do mais antigo para o mais novo
         df = df.sort_values(by="Data da Operação", ascending=True)
+
+        # Remover a última coluna repetida
+        df = df.iloc[:, :-1]  # Remove a última coluna do DataFrame
 
         print(df)
 
@@ -78,6 +111,10 @@ if emails_nao_lidos:
         wb = load_workbook(caminho_excel)
         ws = wb["Dados"]
         ws.delete_rows(1)  # Exclui a primeira linha (cabeçalhos)
+
+        # Aplicar alinhamento à coluna D (supondo que seja a de datas)
+        for cell in ws["D"]:  # Ajuste conforme necessário se a coluna for diferente
+            cell.alignment = Alignment(horizontal="center", vertical="top")
 
         # Salvar as alterações no arquivo Excel
         wb.save(caminho_excel)
