@@ -1,19 +1,15 @@
-#Esta versão encontra o email correto, baixa e salva o arquivo html na pasta correta,
-#cola os dados corretamente no excel gerencie carteira especificado, puxando com referência dinâmica
+#Esta versão busca e encontra o email corretamente, baixa e salva o html da pasta correta,
+#copia e cola os dados corretamente no banco de dados do gerencie carteira, puxa com referência dinâmica corretamente,
+#e salva num novo arquivo nomeado corretamente
 
 import win32com.client
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 import re
-
-
-
-# Caminho correto do Excel
-caminho_excel = r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário\Gerencie Carteira 25.05.07.xlsx"
 
 # Conectar ao Outlook
 outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
@@ -35,6 +31,20 @@ if emails_nao_lidos:
     pasta_destino = r"C:\Users\comercial05\Documents\Gerencie Carteira\HTML"
     dados = []
 
+    # Extrair a data do e-mail mais recente
+    data_mais_recente = max(email.ReceivedTime for email in emails_nao_lidos)
+
+    # Calcular a data do dia anterior
+    data_anterior = data_mais_recente - timedelta(days=1)
+
+    # Formatar a data no padrão correto para o nome do Excel (yyyy.mm.dd)
+    nome_arquivo_excel = f"Gerencie Carteira_{data_anterior.strftime('%Y_%m_%d')}.xlsx"
+
+    # Definir o caminho correto do Excel dinamicamente
+    caminho_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", nome_arquivo_excel)
+
+    print(f" Usando o arquivo: {caminho_excel}: ")  # Apenas para depuração
+
     for email in emails_nao_lidos:
         # Extrair a data do e-mail e formatá-la
         data_email = email.ReceivedTime.strftime("%Y/%m/%d")
@@ -46,7 +56,7 @@ if emails_nao_lidos:
                 nome_arquivo = f"Gerencie_Carteira_{data_email.replace('/', '_')}.html"
                 caminho_arquivo = os.path.join(pasta_destino, nome_arquivo)
                 anexo.SaveAsFile(caminho_arquivo)
-                print(f"Anexo salvo em: {caminho_arquivo}")
+                print(f"✅ Anexo salvo em: {caminho_arquivo}")
                 break
 
         if caminho_arquivo:
@@ -116,23 +126,32 @@ if emails_nao_lidos:
                 # Verifica se a célula contém uma fórmula
                 if formula_origem and isinstance(formula_origem, str) and formula_origem.startswith("="):  
                     for linha in range(primeira_linha_vazia, ws.max_row + 1):
-                        # Ajusta dinamicamente o número da linha dentro da fórmula original
                         nova_formula = re.sub(r'([A-Z])(\d+)', lambda match: f"{match.group(1)}{linha}" if match.group(2) == str(ultima_linha_preenchida) else match.group(0), formula_origem)
                         ws[f"{coluna}{linha}"].value = nova_formula  # Aplica a fórmula ajustada para a linha correta
-                else:
-                    # Se a célula anterior NÃO contém uma fórmula, apenas replica a referência dinâmica
-                    for linha in range(primeira_linha_vazia, ws.max_row + 1):
-                        ws[f"{coluna}{linha}"].value = f"={coluna}{linha-1}"  # Ajusta a fórmula manualmente
 
+                else:
+                    for linha in range(primeira_linha_vazia, ws.max_row + 1):
+                        ws[f"{coluna}{linha}"].value = f"={coluna}{linha-1}"  
 
             # Aplicar alinhamento à coluna D (Data da Operação)
             for cell in ws["D"]:
                 cell.alignment = Alignment(horizontal="center", vertical="top")
 
-            # Salvar as alterações no arquivo Excel
-            wb.save(caminho_excel)
+        # Salvar as alterações no arquivo Excel
+
+            # Definir o novo nome do arquivo
+            novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
+
+            # Definir o caminho para salvar o novo arquivo
+            caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
+
+            # Salvar como (com novo nome)
+            wb.save(caminho_novo_excel)
+
+            print(f"✅ Arquivo salvo como: {caminho_novo_excel}")
+
             print(f"✅ Dados copiados para a planilha 'E-Mail BD', com autopreenchimento das colunas E, F, G e H baseado na última linha acima.")
     else:
-        print("Nenhuma tabela válida encontrada nos arquivos HTML.")
+        print("⚠ Nenhuma tabela válida encontrada nos arquivos HTML.")
 else:
-    print("Nenhum e-mail não lido encontrado com o assunto especificado.")
+    print("⚠ Nenhum e-mail não lido encontrado com o assunto especificado.")
