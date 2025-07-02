@@ -1,11 +1,8 @@
 # ==============================================================================
 # SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.9.0 (Refatorado)
 #
-# NOTAS DA VERSÃO 2.9.0:
-# - Código totalmente refatorado em funções modulares para maior
-#   legibilidade, manutenibilidade e testabilidade.
-# - Corrigido o erro intermitente 'NoneType' object has no attribute 'Cells'.
-# - Mantém todas as funcionalidades das versões anteriores
+# NOTAS DA VERSÃO 2.10.0:
+# - Inclusão de tracebacks e logging para depuração
 # ==============================================================================
 
 import win32com.client
@@ -15,14 +12,46 @@ import re
 import xlwings as xw
 import sys
 import configparser
+import time
+import logging
 from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-import time
+from rich.traceback import Traceback
 
 # Inicializa o console globalmente para ser usado por qualquer função
 console = Console()
+
+def configurar_logging(config): # <-- Adicione 'config' como argumento
+    """Configura o sistema de logging para salvar em arquivo e exibir no console."""
+    
+    FORMATO_LOG = "%(asctime)s - %(levelname)s - %(message)s"
+    
+    # Tenta ler o caminho da pasta de logs do config.ini
+    try:
+        caminho_pasta_logs = config.get('Paths', 'pasta_logs')
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        caminho_pasta_logs = None # Define como None se a chave não existir
+
+    # Se o caminho for fornecido e a pasta não existir, crie-a.
+    if caminho_pasta_logs:
+        os.makedirs(caminho_pasta_logs, exist_ok=True)
+        log_file = os.path.join(caminho_pasta_logs, 'automacao_gerencie_carteira.log')
+    else:
+        # Fallback: se a pasta não for especificada, salva na mesma pasta do script.
+        script_path = os.path.dirname(os.path.realpath(__file__))
+        log_file = os.path.join(script_path, 'automacao_gerencie_carteira.log')
+
+    # A configuração do logging continua a mesma...
+    logging.basicConfig(
+        level="INFO",
+        format=FORMATO_LOG,
+        datefmt="[%Y_%m_%d %H:%M:%S]",
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8')
+        ]
+    )
 
 def carregar_configuracoes(caminho_config_file):
     """
@@ -32,6 +61,7 @@ def carregar_configuracoes(caminho_config_file):
     config = configparser.ConfigParser()
     if not os.path.exists(caminho_config_file):
         console.print(f"[bold red]ERRO CRÍTICO: Arquivo '{caminho_config_file}' não encontrado.[/bold red]")
+        logging.critical(f"ERRO CRÍTICO: Arquivo '{caminho_config_file}' não encontrado.")
         sys.exit("Pressione ENTER para sair")
 
     config.read(caminho_config_file, encoding='utf-8')
@@ -43,8 +73,15 @@ def carregar_configuracoes(caminho_config_file):
         _ = config['Excel']['planilha_dados']
         _ = config['Excel']['coluna_verificacao']
         _ = config['Email']['assunto_procurado']
-    except KeyError as e:
-        console.print(f"[bold red]ERRO CRÍTICO: Chave de configuração não encontrada no 'config.ini': {e}[/bold red]")
+    except KeyError:
+        trace = Traceback(
+            show_locals=True,
+            word_wrap=True,
+            width=120
+        )
+        console.print("\n[on red]ERRO CRÍTICO: Chave de configuração não encontrada no 'config.ini'[/on red]")
+        console.print(trace)
+        logging.critical(f"ERRO CRÍTICO: Chave de configuração não encotrada no aquivo config.ini")
         sys.exit("Pressione ENTER para sair")
         
     return config
@@ -62,6 +99,7 @@ def encontrar_arquivo_base_excel(config):
 
     if not datas_encontradas:
         console.print(f"[bold yellow]Nenhum arquivo base encontrado na pasta:[/bold yellow] [cyan]{pasta_diario}[/cyan]")
+        logging.critical(f"Nenhum arquivo base encontrado na pasta: {pasta_diario}")
         os.startfile(pasta_diario)
         sys.exit("Pressione ENTER para sair")
 
@@ -114,6 +152,7 @@ def extrair_dados_dos_anexos(emails, config):
                     
                     if not tabela_dados:
                         console.print(f"[bold red]ERRO: Nenhuma tabela com 'CNPJ' e 'Razão Social' encontrada em '{nome_arquivo_html}'.[/bold red]")
+                        logging.critical(f"ERRO: Nenhuma tabela com 'CNPJ' e 'Razão Social' encontrada em '{nome_arquivo_html}'.")
                         # Abre o arquivo para inspeção manual
                         os.startfile(caminho_arquivo_html)
                         continue
@@ -126,8 +165,15 @@ def extrair_dados_dos_anexos(emails, config):
                     email.UnRead = False
                     console.print(f"E-mail de [cyan]{data_email.strftime('%d/%m/%Y')}[/cyan] marcado como lido.")
                     break
-        except Exception as e:
-            console.print(f"[bold red]Erro ao processar e-mail de {data_email}: {e}[/bold red]")
+        except Exception:
+            trace = Traceback (
+                show_locals=True,
+                word_wrap=True,
+                width=120
+            )
+            console.print(f"\n[on red]ERRO CRÍTICO: Erro ao processar o email de {data_email} [/on red]")
+            console.print(trace)
+            logging.critical(f"ERRO CRÍTICO: Erro ao processar o email de {data_email}")
             continue
 
     if not dados_extraidos: return pd.DataFrame()
@@ -200,8 +246,15 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
             last_row = ws.range('A' + str(ws.cells.rows.count)).end('up').row
             if last_row > 1 and not ws.range(f'{col_verificacao}{last_row}').formula.startswith('='):
                 raise ValueError(f"Coluna '{col_verificacao}' não contém fórmula.")
-        except Exception as e:
-            console.print(f"[bold red]ERRO: Planilha base '{os.path.basename(caminho_base_excel)}' inválida. {e}[/bold red]")
+        except Exception:
+            trace = Traceback(
+                show_locals=True,
+                word_wrap=True,
+                width=120
+            )
+            console.print("\n[on red]Planilha base do excel inválida!")
+            console.print(trace)
+            logging.critical(f"Planilha base do excel inválida!")
             os.startfile(caminho_base_excel)
             return
 
@@ -219,12 +272,21 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
         wb.save(caminho_novo_excel)
         if erro_encontrado:
             console.print(Panel.fit(f"Arquivo salvo com pendências em:\n[yellow]{caminho_novo_excel}[/yellow]", title="Ação Necessária", border_style="yellow"))
+            logging.warning(f"Arquivo salvo com pendências em: {caminho_novo_excel}")
             if os.path.exists(executavel): os.startfile(executavel)
         else:
             console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
+            logging.info(f"Arquivo salvo e atualizado com sucesso em: {caminho_novo_excel}")
 
-    except Exception as e:
-        console.print(f"[bold red]Erro inesperado na automação do Excel:[/bold red]\n{e}")
+    except Exception:
+        trace = Traceback(
+            show_locals=True,
+            word_wrap=True,
+            width=120
+        )
+        console.print("\n[on red]ERRO CRÍTICO: Ocorreu um erro inesperado na automação do excel![/on red]")
+        console.print(trace)
+        logging.critical(f"ERRO CRÍTICO: Ocorreu um erro inesperado na automação do excel!")
     finally:
         # --- MUDANÇA 3: LIMPEZA ROBUSTA ---
         # Garante que a pasta de trabalho seja fechada antes de fechar o app.
@@ -241,28 +303,34 @@ def main():
     console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira'[/bold cyan]"))
     
     # 1. Carregar Configurações
-    script_path = os.path.dirname(os.path.realpath(__file__))
-    config_file = os.path.join(script_path, 'config.ini')
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    root_dir = os.path.dirname(script_dir)
+    config_file = os.path.join(root_dir, 'config', 'config.ini')
     config = carregar_configuracoes(config_file)
 
-    # 2. Buscar E-mails
+    # 2. Configurar Logging (agora recebe o objeto 'config')
+    configurar_logging(config) 
+
+    # 3. Buscar E-mails
     emails = buscar_emails_novos(config)
     if not emails:
         console.print("[bold yellow]Nenhum e-mail não lido encontrado com o assunto especificado.[/bold yellow]")
+        logging.critical(f"Nenhum e-mail não lido encontrado com o assunto especificado.")
         return # Encerra a função principal
 
     console.print(f"Encontrados [bold green]{len(emails)}[/bold green] e-mail(s) para processar.")
     
-    # 3. Extrair Dados dos Anexos
+    # 4. Extrair Dados dos Anexos
     df_dados = extrair_dados_dos_anexos(emails, config)
     if df_dados.empty:
         console.print("[bold yellow]Nenhum dado válido foi extraído dos anexos.[/bold yellow]")
+        logging.critical(f"Nenhum dado válido foi extraído dos anexos.")
         return
         
-    # 4. Apresentar Dados no Console
+    # 5. Apresentar Dados no Console
     apresentar_dados_no_console(df_dados)
     
-    # 5. Encontrar Base e Atualizar Excel
+    # 6. Encontrar Base e Atualizar Excel
     caminho_base = encontrar_arquivo_base_excel(config)
     atualizar_planilha_excel(df_dados, config, caminho_base)
 
