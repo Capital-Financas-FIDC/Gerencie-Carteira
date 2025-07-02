@@ -1,8 +1,7 @@
 #Mantém todas as funcionalidades da versão anterior
 
 #Notas da v2.8.1:
-# -Corrige o problema da busca pela tabela no arquivo html, substituindo por uma busca inteligente
-# -Normaliza as strings da rich para não haver erro na hora da leitura
+# -Adiciona verificações para melhoria de robustez
 
 import win32com.client
 import os
@@ -44,6 +43,9 @@ try:
     pasta_destino_html = config['Paths']['pasta_destino_html']
     pasta_diario_excel = config['Paths']['pasta_diario_excel']
     executavel_direciona = config['Paths']['executavel_direciona']
+    # Seção [Excel]
+    nome_planilha_dados = config['Excel']['planilha_dados']
+    coluna_verificacao = config['Excel']['coluna_verificacao']
     # Seção [Email]
     assunto_procurado = config['Email']['assunto_procurado']
 except KeyError as e:
@@ -208,7 +210,7 @@ if emails_nao_lidos:
             # Aplica cores diferentes para as alterações de inclusão, exclusão ou outras
             if alteracao_normalizada == "INCLUSAO ANOT.INADIMPLENCIA":
                 alteracao_rich_formatada = f"[bold red]{alteracao_rich}[/bold red]"
-            elif alteracao_rich == "EXCLUSAO ANOT.INADIMPLENCIA":
+            elif alteracao_normalizada == "EXCLUSAO ANOT.INADIMPLENCIA":
                 alteracao_rich_formatada = f"[bold #1cb900]{alteracao_rich}[/bold #1cb900]"
             else:
                 alteracao_rich_formatada = f"[bold yellow]{alteracao_rich}[/bold yellow]"
@@ -232,55 +234,76 @@ if emails_nao_lidos:
             # --- PARTE 2: MANIPULAÇÃO DO EXCEL (Lógica com xlwings) ---
             with xw.App(visible=False) as app:
                 # Abre o arquivo MAIS RECENTE JÁ EXISTENTE para usar como base.
-                # A variável 'caminho_excel' já foi definida no início do seu script.
-                wb = app.books.open(caminho_excel) 
-                
-                # Tenta selecionar a planilha
-                ws_email_bd = wb.sheets['E-Mail BD']
+                # A variável 'caminho_excel' já foi definida no config.ini
+                wb = app.books.open(caminho_excel)
 
-                # Verificação de segurança para garantir que a planilha existe
-                if ws_email_bd is None:
-                    console.print(f"[bold red]Erro Crítico: A planilha 'E-Mail BD' não foi encontrada no arquivo base '{nome_arquivo_excel}'.[/bold red]")
+                # --- INÍCIO DA VERIFICAÇÃO DE INTEGRIDADE ---
+                try:
+                    # Verifica se a aba especificada existe
+                    ws_dados = wb.sheets[nome_planilha_dados] 
+
+                    ultima_linha_com_dados = ws_dados.range('A' + str(ws_dados.cells.rows.count)).end('up').row
+
+                    # Só checa se houver mais do que apenas o cabeçalho
+                    if ultima_linha_com_dados > 1:
+                        celula_para_checar = f'{coluna_verificacao}{ultima_linha_com_dados}'
+                        formula_da_celula = ws_dados.range(celula_para_checar).formula
+
+                        if not formula_da_celula.startswith('='):
+                            # Se não começar com '=', não é uma fórmula. É um erro crítico.
+                            raise ValueError(f"A célula de verificação '{celula_para_checar}' não contém uma fórmula do Excel.")
+                except (KeyError, ValueError) as e:
+                    # Se qualquer uma das verificações falhar, o erro será capturado aqui
+                    console.print(f"\n[bold red]ERRO CRÍTICO: O arquivo base '{nome_arquivo_excel}' falhou na verificação de integridade.[/bold red]")
+                    console.print(f"[yellow]Detalhe do erro: {e}[/yellow]")
+                    console.print("O script não pode continuar. Por favor, corrija o arquivo base.")
                     wb.close()
-                    os.startfile(caminho_excel) #Abre o excel do dia anterior caso não encontra "E-Mail BD"
-                else:
-                    # Se encontrou, continua com o processo
-                    primeira_linha_vazia = ws_email_bd.range('A' + str(ws_email_bd.cells.rows.count)).end('up').row + 1
-                    num_novas_linhas=len(df)
+                    os.startfile(caminho_excel) # Abre o arquivo problemático para o usuário
+                    sys.exit() # Interrompe a execução
+                # --- FIM DA VERIFICAÇÃO DE INEGRIDADE ---
+                    
+                # Se passou pela verificação, o script continua normalmente
+                console.print("\n[bold green]Arquivo base verificado com sucesso. Prosseguindo com a atualização...[/bold green]")
+                    
+                # Encontra a primeira linha vazia e insere os dados
+                primeira_linha_vazia = ws_dados.range('A' + str(ws_dados.cells.rows.count)).end('up').row + 1
+                num_novas_linhas = len(df)
 
-                    if num_novas_linhas > 0:
-                        ultima_linha_nova = primeira_linha_vazia + num_novas_linhas - 1
-                        intervalo_texto = f'A{primeira_linha_vazia}:C{ultima_linha_nova}'
-                        ws_email_bd.range(intervalo_texto).number_format = '@'
-                        ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
-                        intervalo_verif=f'E{primeira_linha_vazia}:E{ultima_linha_nova}'
-                        dados_a_verificar = ws_email_bd.range(intervalo_verif).options(err_to_str=True).value
+                if num_novas_linhas > 0:
+                    ultima_linha_nova = primeira_linha_vazia + num_novas_linhas - 1
+                    intervalo_texto = f'A{primeira_linha_vazia}:C{ultima_linha_nova}'
+                    ws_dados.range(intervalo_texto).number_format = '@'
+                    ws_dados.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
+                    # Verificação do erro #N/D
+                    intervalo_verif= f'{coluna_verificacao}{primeira_linha_vazia}:{coluna_verificacao}{ultima_linha_nova}'
+                    dados_a_verificar = ws_dados.range(intervalo_verif).options(err_to_str=True).value
                         
-                        erro_encontrado = False
-                        # Garante que dados_coluna_d seja sempre uma lista para o loop
-                        if not isinstance(dados_a_verificar, list):
-                            dados_a_verificar = [dados_a_verificar]
+                    erro_encontrado = False
+                    # Garante que dados_coluna_d seja sempre uma lista para o loop
+                    if not isinstance(dados_a_verificar, list):
+                        dados_a_verificar = [dados_a_verificar]
 
-                        for i, valor_celula in enumerate(dados_a_verificar):
-                            if isinstance(valor_celula, str) and valor_celula.startswith('#'):
-                                linha_do_erro = primeira_linha_vazia + i
-                                endereco_celula = f'D{linha_do_erro}'
-                                console.print(f"[bold red]O erro #N/D foi encontrado na célula {endereco_celula} da planilha '{ws_email_bd.name}'.[/bold red]")
-                                erro_encontrado = True
-                    else:
-                        erro_encontrado = False
-                        console.print(Panel.fit(f"[red]Gerencie Carteira veio vazio hoje![/red]", title="ERRO", border_style="red"))
-                        sys.exit()
-
-                    if erro_encontrado: #Se encontrar o erro
-                        wb.save(caminho_novo_excel) #Salva o arquivo
-                        wb.close()
+                    for i, valor_celula in enumerate(dados_a_verificar):
+                        if isinstance(valor_celula, str) and valor_celula.startswith('#'):
+                            linha_do_erro = primeira_linha_vazia + i
+                            endereco_celula = f'{coluna_verificacao}{linha_do_erro}'
+                            console.print(f"[bold red]O erro #N/D foi encontrado na célula {endereco_celula} da planilha '{ws_dados.name}'.[/bold red]")
+                            erro_encontrado = True
+                    # Lógica final de salvar e avisar o usuário
+                    if erro_encontrado:
+                        wb.save(caminho_novo_excel)
                         console.print(Panel.fit(f"Arquivo salvo em :\n[yellow]{caminho_novo_excel}[/yellow]", title="Cedente sem gerente", border_style="yellow"))
-                        os.startfile(executavel_direciona) #Abre o DIRECIONA para consulta
-                    else: #Se NÃO encontrar o erro
-                        wb.save(caminho_novo_excel) #Salva o arquivo
-                        wb.close()
+                        os.startfile(executavel_direciona)
+                    else:
+                        wb.save(caminho_novo_excel)
                         console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
+                    
+                else: # Caso o DataFrame venha vazio
+                    console.print(Panel.fit(f"[red]Gerencie Carteira veio vazio hoje![/red]", title="AVISO", border_style="yellow"))
+                    # Decida se quer sair ou apenas não criar um arquivo novo
+                    sys.exit()
+                
+                wb.close()
 
         except Exception as e:
             console.print(f"[bold red]Ocorreu um erro inesperado durante a automação do Excel:[/bold red]")
