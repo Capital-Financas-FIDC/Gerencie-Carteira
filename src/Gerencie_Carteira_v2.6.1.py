@@ -1,9 +1,7 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.6.0:
-#  - Melhorias na apresentação do terminal com a biblioteca 'rich' (tabelas e mensagens coloridas).
-#  - Correção na formatação da data do e-mail para AAAA/MM/DD.
-#  - Melhorias no tratamento de erros com feedback mais claro no terminal.
+#Notas da v2.6.1:
+#  - Adição das colunas I e J na planilha, para contabilizar as exclusões e inclusões
 
 import win32com.client
 import os
@@ -73,7 +71,7 @@ if emails_nao_lidos:
         # A chave de ordenação foi ajustada para lidar com o formato AAAA_MM_DD
         ultima_data_diario = max(datas_encontradas_lista, key=lambda x: tuple(map(int, x.split('_'))))
         # Constrói o nome completo do arquivo Excel mais recente
-        nome_arquivo_excel = f"Gerencie Carteira_{ultima_data_diario}.xlsx"
+        nome_arquivo_excel = f"Gerencie Carteira_{ultima_data_diario}.xlsm"
         # Constrói o caminho completo para o arquivo Excel mais recente
         caminho_excel = os.path.join(pasta_diario, nome_arquivo_excel)
     else:
@@ -175,7 +173,7 @@ if emails_nao_lidos:
         # Acessa a segunda planilha (índice 1), que deve ser "E-Mail BD"
         ws_email_bd = wb.worksheets[1]
         # Acessa a quarta planilha (índice 3), que deve ser "PROCV GERENTES BD"
-        ws_procv_gerentes_bd = wb.worksheets[3]
+        ws_procv_gerentes_bd = wb.worksheets[2]
 
         # Verifica se o nome da segunda planilha corresponde ao esperado
         if ws_email_bd.title != "E-Mail BD":
@@ -183,7 +181,7 @@ if emails_nao_lidos:
             os.startfile(caminho_excel)
         # Verifica se o nome da quarta planilha corresponde ao esperado
         elif ws_procv_gerentes_bd.title != "PROCV GERENTES BD":
-            console.print("[bold red]A quarta planilha não tem o nome esperado. Verifique manualmente.[/bold red]")
+            console.print("[bold red]A terceira planilha não tem o nome esperado. Verifique manualmente.[/bold red]")
             os.startfile(caminho_excel)
         else:
             # Encontra a primeira linha vazia na planilha "E-Mail BD" para começar a inserir os novos dados
@@ -194,8 +192,8 @@ if emails_nao_lidos:
                 for c_idx, value in enumerate(row, start=1):
                     ws_email_bd.cell(row=r_idx, column=c_idx, value=value)
 
-            # Preenche automaticamente as colunas E, F, G e H com fórmulas dinâmicas
-            for coluna in ["E", "F", "G", "H"]:
+            # Preenche automaticamente as colunas E, F, G, H, I e J com fórmulas dinâmicas
+            for coluna in ["E", "F", "G", "H", "I", "J"]:
                 # Pega a última linha preenchida antes da inserção dos novos dados
                 ultima_linha = primeira_linha_vazia_email_bd - 1
                 # Captura a fórmula original da célula acima (na última linha preenchida)
@@ -226,14 +224,14 @@ if emails_nao_lidos:
                     erros = True # Define a flag como True se um erro for detectado
 
             # Define o nome do novo arquivo Excel a ser salvo com a data formatada como AAAA_MM_DD
-            novo_nome_arquivo = f"Gerencie Carteira_{data_email_nome}.xlsx"
+            novo_nome_arquivo = f"Gerencie Carteira_{data_email_nome}.xlsm"
             # Constrói o caminho completo para o novo arquivo Excel
             caminho_novo_excel = os.path.join(pasta_diario, novo_nome_arquivo)
 
             # Se algum erro foi detectado, salva o arquivo, exibe uma mensagem de erro e abre os arquivos relevantes
             if erros:
                 wb.save(caminho_novo_excel)
-                console.print(Panel.fit(f"Arquivo salvo como: [green]{novo_nome_arquivo}[/green]", title="Com Erros", border_style="yellow"))
+                console.print(Panel.fit(f"Arquivo salvo como: [green]{novo_nome_arquivo}[/green]", title="Cedente Novo", border_style="yellow"))
                 os.startfile(caminho_novo_excel)
                 os.startfile(r"C:\DIRECIONA\atualiza.exe")
             # Se nenhum erro foi detectado, tenta atualizar a tabela dinâmica no Excel
