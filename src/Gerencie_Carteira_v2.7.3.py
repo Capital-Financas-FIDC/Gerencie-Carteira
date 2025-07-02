@@ -1,8 +1,8 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.7.2:
-# -Corrigido o erro que o programa não identifica os células com erro (sem gerente no PROCV)
-# -Corrigido o erro que faz com que certas datas no framwork permaneçam como strings
+#Notas da v2.7.3:
+# -Tirada a inserção de espaço não-quebrante na tabela
+# -Agora o programa força o Excel a intepretar os dados como Texto
 
 import win32com.client
 import os
@@ -61,11 +61,10 @@ if emails_nao_lidos:
         match = padrao_nome_excel.search(arquivo_diario)
         if match:
             datas_encontradas_lista.append(match.group(1))
-        else:
-            # Informa se nenhum arquivo com o padrão de data foi encontrado e abre a pasta para verificação manual
-            console.print("[bold yellow]Nenhum arquivo com data foi encontrado na pasta! Verifique manualmente[/bold yellow]")
-            os.startfile(pasta_diario)
-            break
+    if not datas_encontradas_lista:
+        console.print("[bold yellow]Nenhum arquivo com data foi encontrado na pasta! Verifique manualmente[/bold yellow]")
+        os.startfile(pasta_diario)
+        sys.exit() # Sair se nenhum arquivo base for encontrado
 
     # Se datas de arquivos Excel foram encontradas, determina a data da planilha mais recente
     if datas_encontradas_lista:
@@ -139,10 +138,7 @@ if emails_nao_lidos:
         for coluna in colunas_para_string:
             df[coluna] = df[coluna].astype(str)
         
-        # Adiciona um espaço não-quebrante no início de cada valor para formatação
-        df["CNPJ"] = df["CNPJ"].apply(lambda x: "\xa0 " + x)
-        df["Razão Social"] = df["Razão Social"].apply(lambda x: "\xa0 " + x)
-        df["Alteração"] = df["Alteração"].apply(lambda x: "\xa0 " + x)
+
         
         # Ordena os dados pela "Data da Operação" do mais antigo para o mais novo
         df = df.sort_values(by="Data do recebimento do e-mail", ascending=True)
@@ -201,18 +197,15 @@ if emails_nao_lidos:
                     os.startfile(caminho_excel) #Abre o excel do dia anterior caso não encontra "E-Mail BD"
                 else:
                     # Se encontrou, continua com o processo
-                    
                     primeira_linha_vazia = ws_email_bd.range('A' + str(ws_email_bd.cells.rows.count)).end('up').row + 1
-                    ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
-                    
-                    wb.api.RefreshAll()
-
                     num_novas_linhas=len(df)
 
                     if num_novas_linhas > 0:
                         ultima_linha_nova = primeira_linha_vazia + num_novas_linhas - 1
+                        intervalo_texto = f'A{primeira_linha_vazia}:C{ultima_linha_nova}'
+                        ws_email_bd.range(intervalo_texto).number_format = '@'
+                        ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
                         intervalo_verif=f'E{primeira_linha_vazia}:E{ultima_linha_nova}'
-
                         dados_a_verificar = ws_email_bd.range(intervalo_verif).options(err_to_str=True).value
                         
                         erro_encontrado = False
