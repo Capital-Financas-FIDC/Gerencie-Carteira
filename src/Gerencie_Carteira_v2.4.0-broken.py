@@ -1,6 +1,5 @@
-#Este programa encontra o email, salva o html na pasta certa, cola as informações contidas no HTML
-#na planilha do excel, puxa com referência dinâmica tudo certinho, verifica se o
-#cedente já está no procv e se não estiver avisa
+#Ainda trabalhando para que o programa atualize a tabela dinâmica corretamente
+#LINHA 161
 
 
 import win32com.client
@@ -38,8 +37,8 @@ if emails_nao_lidos:
     # Calcular a data do dia anterior
     data_anterior = data_mais_recente - timedelta(days=1)
 
-    # Formatar a data no padrão correto para o nome do Excel (yyyy.mm.dd)
-    nome_arquivo_excel = f"Gerencie Carteira_{data_anterior.strftime('%Y_%m_%d')}.xlsx"
+    # Formatar a data no padrão correto para o nome do Excel (dd.mm.yy)
+    nome_arquivo_excel = f"Gerencie Carteira_{data_anterior.strftime('%d_%m_%Y')}.xlsx"
 
     # Definir o caminho correto do Excel dinamicamente
     caminho_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", nome_arquivo_excel)
@@ -48,7 +47,7 @@ if emails_nao_lidos:
 
     for email in emails_nao_lidos:
         # Extrair a data do e-mail e formatá-la
-        data_email = email.ReceivedTime.strftime("%Y/%m/%d")
+        data_email = email.ReceivedTime.strftime("%d/%m/%Y")
 
         # Baixar o anexo .html
         caminho_arquivo = None
@@ -143,18 +142,41 @@ if emails_nao_lidos:
 
             # Verificar se cada informação adicionada na coluna B está presente na coluna A da planilha "PROCV GERENTES BD"
             valores_procv_gerentes_bd = [cell.value for cell in ws_procv_gerentes_bd['A']]
+            erros_detectados = False #Flag para encontrar erros
+
             for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
                 valor_coluna_b = ws_email_bd[f"B{linha}"].value
                 if valor_coluna_b not in valores_procv_gerentes_bd:
                     print(f"⚠ Erro encontrado na célula E{linha}. Verifique manualmente.")
+                    erros_detectados = True #Caso um erro seja detectado, define a flag como True
 
-            # Salvar as alterações no arquivo Excel
-            novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
-            caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
-            wb.save(caminho_novo_excel)
+            # Se algum erro for detectado, prossegue normalmente e salva as alterações no arquivo Excel
+            if erros_detectados==True:
+                novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
+                caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
+                wb.save(caminho_novo_excel)
+                print(f"✅ Arquivo salvo como: {caminho_novo_excel}")
+                print(f"✅ Dados copiados para a planilha 'E-Mail BD', com autopreenchimento das colunas E, F, G e H baseado na última linha acima.")
 
-            print(f"✅ Arquivo salvo como: {caminho_novo_excel}")
-            print(f"✅ Dados copiados para a planilha 'E-Mail BD', com autopreenchimento das colunas E, F, G e H baseado na última linha acima.")
+            #Se nenhum erro for detectado, atualiza a tabela dinâmica
+            elif erros_detectados==False:
+                try:
+                    tabela_dinamica = wb.worksheets("Tabela_Dinâmica") # A primeira aba, garantindo que seja "Tabela Dinâmica"
+                    if tabela_dinamica == "Tabela Dinâmica":
+                        #Atualiza a tabela dinâmica
+                        for i in range (tabela_dinamica.PivotTables.Count):
+                            tabela_dinamica.PivotTables.Item(i+1).RefreshTable()
+                        #Salva as alterações no arquivo Excel
+                        novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
+                        caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
+                        wb.save(caminho_novo_excel)
+                        print("✅ Tabela dinâmica atualizada com sucesso!")
+                        print(f"✅ Arquivo salvo como: {caminho_novo_excel}")
+                        print(f"✅ Dados copiados para a planilha 'E-Mail BD', com autopreenchimento das colunas E, F, G e H baseado na última linha acima.")
+                    else: 
+                        print("⚠ A primeira planilha não tem o nome esperado!")
+                except Exception as e:
+                    print(f"❌ Erro ao tentar atualizar a tabela dinâmica: {e}")
     else:
         print("⚠ Nenhuma tabela válida encontrada nos arquivos HTML.")
 else:
