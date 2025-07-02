@@ -1,14 +1,14 @@
-#Esta versão do programa encontra o email correto, abre-o, encontra o anexo .html
-#salva-o na pasta designada, dentro deste arquivo encontra corretamente a tabela com os dados,
-#copia-a, adiciona a coluna da data, encontra o arquivo de excel designado, cola a tabela com
-#os dados na linha certa, faz o autopreenchimento com referência dinâmica das demais colunas,
-#caso alguma célula fique com o erro do gerente, porque não está no PROCV, informa a célula e diz 
-#para verificar manualmente, caso não haja erro, atualiza a tabela dinâmica.
+#Mantém todas as funcionalidades da versão anterior
+
+#Bug fixes:
+#   -Conserta o problema de que caso não houvesse uma planilha na pasta Diário com a data exatamente do dia anterior
+#    o programa falhava. Isso costumava acontecer nos finais de semana, quando ficávamos um dia ou dois sem receber 
+#    um relatório do Gerencie Carteira. Agora o programa detecta a planilha com a data mais recente, ao invés de uma
+#    com a data exatamente anterior.
 
 
 import win32com.client
 import os
-from datetime import timedelta
 from bs4 import BeautifulSoup
 import pandas as pd
 from openpyxl import load_workbook
@@ -38,14 +38,31 @@ if emails_nao_lidos:
     # Extrair a data do e-mail mais recente
     data_mais_recente = max(email.ReceivedTime for email in emails_nao_lidos)
 
-    # Calcular a data do dia anterior
-    data_anterior = data_mais_recente - timedelta(days=1)
+    # Calcular a data da última planilha
+    pasta_diario = r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário" #Definir a pasta das planilhas diárias
 
-    # Formatar a data no padrão correto para o nome do Excel (yyyy.mm.dd)
-    nome_arquivo_excel = f"Gerencie Carteira_{data_anterior.strftime('%Y_%m_%d')}.xlsx"
+    arquivos_diario = os.listdir(pasta_diario) #Lista todos os arquivos na pasta
 
-    # Definir o caminho correto do Excel dinamicamente
-    caminho_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", nome_arquivo_excel)
+    padrao_nome_excel = re.compile(r"Gerencie Carteira_(\d{2}_\d{2}_\d{4})") #Filtrar os arquivos na pasta que têm o padrão de nome edsejado
+    
+    datas_encontradas_lista = []
+
+    for arquivo_diario in arquivos_diario:
+        match = padrao_nome_excel.search(arquivo_diario)
+        if match:
+            datas_encontradas_lista.append(match.group(1))
+        else:
+            print("Nenhum arquivo com data foi encontrado na pasta!")
+            break
+
+        #Se encontrar alguma data, pegar a mais recente
+        if datas_encontradas_lista:
+            ultima_data_diario = max(datas_encontradas_lista, key=lambda x: tuple(map(int, x.split('_')))[::-1])
+            #print(ultima_data_diario) # Apenas para depuração
+            nome_arquivo_excel = f"Gerencie Carteira_{ultima_data_diario}.xlsx" #Declara o nome correto da útlima planilha na pasta
+            caminho_excel = os.path.join(pasta_diario, nome_arquivo_excel) #Define qual é o endereço correto do último excel que está na pasta
+        else:
+            print("⚠ Nenhuma planilha encontrada na pasta! Verifique manualmente")
 
     #print(f" Usando o arquivo: {caminho_excel}: ")  # Apenas para depuração
 
@@ -160,7 +177,6 @@ if emails_nao_lidos:
                 caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
                 wb.save(caminho_novo_excel)
                 print(f"✅ Arquivo salvo como: '{novo_nome_arquivo}' na pasta Diário do Gerencie Carteira")
-                print(f"✅ Dados copiados para a planilha 'E-Mail BD' com sucesso!")
 
             #Se nenhum erro for detectado, atualiza a tabela dinâmica
             elif erros_detectados==False:
@@ -172,7 +188,6 @@ if emails_nao_lidos:
                     novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
                     caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
                     wb.save(caminho_novo_excel)
-                    print(f"✅ Dados copiados para a planilha 'E-Mail BD' com sucesso!")
                     print(f"✅ Tabela dinâmica atualizada com sucesso!")
                     print(f"✅ Arquivo salvo como: '{novo_nome_arquivo}' na pasta Diário do Gerencie Carteira")
                 except Exception as e:
