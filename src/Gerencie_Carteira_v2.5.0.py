@@ -52,7 +52,8 @@ if emails_nao_lidos:
         if match:
             datas_encontradas_lista.append(match.group(1))
         else:
-            print("Nenhum arquivo com data foi encontrado na pasta!")
+            print("⚠ Nenhum arquivo com data foi encontrado na pasta! Verifique manualmente")
+            os.startfile(pasta_diario)
             break
 
         #Se encontrar alguma data, pegar a mais recente
@@ -63,6 +64,7 @@ if emails_nao_lidos:
             caminho_excel = os.path.join(pasta_diario, nome_arquivo_excel) #Define qual é o endereço correto do último excel que está na pasta
         else:
             print("⚠ Nenhuma planilha encontrada na pasta! Verifique manualmente")
+            os.startfile(pasta_diario)
 
     #print(f" Usando o arquivo: {caminho_excel}: ")  # Apenas para depuração
 
@@ -131,8 +133,10 @@ if emails_nao_lidos:
         # Verificar se o nome da planilha corresponde ao esperado
         if ws_email_bd.title != "E-Mail BD":
             print("⚠ A segunda planilha não tem o nome esperado. Verifique manualmente.")
+            os.startfile(caminho_excel)
         elif ws_procv_gerentes_bd.title != "PROCV GERENTES BD":
             print("⚠ A quarta planilha não tem o nome esperado. Verifique manualmente.")
+            os.startfile(caminho_excel)
         else:
             # Encontrar a primeira linha vazia na planilha "E-Mail BD"
             primeira_linha_vazia_email_bd = ws_email_bd.max_row + 1
@@ -177,6 +181,7 @@ if emails_nao_lidos:
                 caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
                 wb.save(caminho_novo_excel)
                 print(f"✅ Arquivo salvo como: '{novo_nome_arquivo}' na pasta Diário do Gerencie Carteira")
+                os.startfile(caminho_novo_excel)
 
             #Se nenhum erro for detectado, atualiza a tabela dinâmica
             elif erros_detectados==False:
@@ -194,5 +199,6 @@ if emails_nao_lidos:
                     print(f"❌ Erro ao tentar atualizar a tabela dinâmica: {e}")
     else:
         print("⚠ Nenhuma tabela válida encontrada nos arquivos HTML.")
+        os.startfile(caminho_arquivo)
 else:
     print("⚠ Nenhum e-mail não lido encontrado com o assunto especificado.")
