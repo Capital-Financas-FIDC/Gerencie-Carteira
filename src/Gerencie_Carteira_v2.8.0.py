@@ -1,8 +1,8 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.7.3:
-# -Tirada a inserção de espaço não-quebrante na tabela
-# -Agora o programa força o Excel a intepretar os dados como Texto
+#Notas da v2.8.0:
+# -Mudança na obtenção de diretórios e pathings:
+#   -Agora tudo fica dentro de um arquivo chamado config.ini, que pode ser alterado à vontade pelo usuário
 
 import win32com.client
 import os
@@ -14,9 +14,44 @@ from rich.table import Table
 from rich.panel import Panel
 import xlwings as xw
 import sys
+import configparser
 
 # Inicializa o objeto Console da biblioteca rich para impressões coloridas e formatadas no terminal.
 console = Console()
+
+# --- INÍCIO DO BLOCO DE CONFIG---
+
+# Pega o caminho absoluto da pasta onde este script Python está localizado.
+# __file__ é uma variável especial que contém o caminho do próprio script.
+pasta_script = os.path.dirname(os.path.realpath(__file__))
+
+# Cria o caminho completo e exato para o arquivo config.ini.
+caminho_config = os.path.join(pasta_script, 'config.ini')
+
+config = configparser.ConfigParser()
+# Verifica se o arquivo config.ini existe antes de tentar ler
+if not os.path.exists(caminho_config):
+    console.print("[bold red]ERRO CRÍTICO: Arquivo 'config.ini' não encontrado.[/bold red]")
+    console.print("Certifique-se de que o arquivo de configuração está na mesma pasta que o script.")
+    input("\nPressione ENTER para sair")
+    sys.exit()
+
+config.read(caminho_config, encoding='utf-8')
+
+# Acessa as configurações usando as seções e chaves do arquivo
+try:
+    # Seção [Paths]
+    pasta_destino_html = config['Paths']['pasta_destino_html']
+    pasta_diario_excel = config['Paths']['pasta_diario_excel']
+    executavel_direciona = config['Paths']['executavel_direciona']
+    # Seção [Email]
+    assunto_procurado = config['Email']['assunto_procurado']
+except KeyError as e:
+    console.print(f"[bold red]ERRO CRÍTICO: Chave de configuração não encontrada no 'config.ini': {e}[/bold red]")
+    console.print("Verifique se o seu 'config.ini' contém todas as chaves necessárias.")
+    input("\nPressione ENTER para sair")
+    sys.exit()
+# --- FIM DO BLOCO DE CONFIG ---
 
 # Conectar ao Outlook
 outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
@@ -24,9 +59,6 @@ outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
 # Acessar a caixa de entrada (pasta Inbox)
 inbox = outlook.GetDefaultFolder(6)
 messages = inbox.Items
-
-# Definir o assunto do e-mail para pesquisa
-assunto_procurado = "Gerencie Carteira - Consulte as Empresas Monitoradas"
 
 # Ordenar e-mails por data, do mais antigo ao mais recente
 messages.Sort("[ReceivedTime]", False)
@@ -37,7 +69,7 @@ emails_nao_lidos = [msg for msg in messages if msg.Subject == assunto_procurado 
 # Verifica se há e-mails não lidos com o assunto procurado
 if emails_nao_lidos:
     # Definir o caminho para a pasta onde os arquivos HTML serão salvos
-    pasta_destino = r"C:\Users\comercial05\Documents\Gerencie Carteira\HTML"
+    pasta_destino = pasta_destino_html
     dados = []
 
     # Extrair a data do e-mail mais recente (embora não seja utilizada posteriormente para nomear o arquivo HTML individualmente,
@@ -45,7 +77,7 @@ if emails_nao_lidos:
     data_mais_recente = max(email.ReceivedTime for email in emails_nao_lidos)
 
     # Definir o caminho para a pasta das planilhas diárias do Excel
-    pasta_diario = r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário"
+    pasta_diario = pasta_diario_excel
     
     # Lista todos os arquivos na pasta 'Diário'
     arquivos_diario = os.listdir(pasta_diario)
@@ -228,11 +260,7 @@ if emails_nao_lidos:
                         wb.save(caminho_novo_excel) #Salva o arquivo
                         wb.close()
                         console.print(Panel.fit(f"Arquivo salvo em :\n[yellow]{caminho_novo_excel}[/yellow]", title="Cedente sem gerente", border_style="yellow"))
-                        try:
-                            os.startfile(caminho_novo_excel)
-                        except FileNotFoundError:
-                            console.print("[red]Houve um problema ao abrir o excel[/red]")
-                        os.startfile(r"C:\DIRECIONA\atualiza.exe") #Abre o DIRECIONA para consulta
+                        os.startfile(executavel_direciona) #Abre o DIRECIONA para consulta
                     else: #Se NÃO encontrar o erro
                         wb.save(caminho_novo_excel) #Salva o arquivo
                         wb.close()
