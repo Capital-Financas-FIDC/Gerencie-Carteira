@@ -1,7 +1,8 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.7.1:
-# -Corrigido o erro "'NoneType' object has no attribute 'Cells'"
+#Notas da v2.7.2:
+# -Corrigido o erro que o programa não identifica os células com erro (sem gerente no PROCV)
+# -Corrigido o erro que faz com que certas datas no framwork permaneçam como strings
 
 import win32com.client
 import os
@@ -12,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 import xlwings as xw
+import sys
 
 # Inicializa o objeto Console da biblioteca rich para impressões coloridas e formatadas no terminal.
 console = Console()
@@ -127,7 +129,10 @@ if emails_nao_lidos:
     # Se houver dados extraídos, processa-os e insere-os no Excel
     if dados:
         # Cria um DataFrame do pandas com os dados e a nova coluna "Data da Operação"
-        df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data da Operação"])
+        df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data do recebimento do e-mail"])
+        
+         # Converte a coluna "Data da Operação" para uma data propriamente
+        df["Data do recebimento do e-mail"]=pd.to_datetime(df["Data do recebimento do e-mail"], errors='coerce')       
         
         # Converte as colunas "CNPJ", "Razão Social" e "Alteração"
         colunas_para_string = ["CNPJ", "Razão Social", "Alteração"]
@@ -140,21 +145,21 @@ if emails_nao_lidos:
         df["Alteração"] = df["Alteração"].apply(lambda x: "\xa0 " + x)
         
         # Ordena os dados pela "Data da Operação" do mais antigo para o mais novo
-        df = df.sort_values(by="Data da Operação", ascending=True)
+        df = df.sort_values(by="Data do recebimento do e-mail", ascending=True)
 
         # Configura a tabela para exibição no terminal usando a biblioteca 'rich'
         tabela_rich = Table(title="Empresas Monitoradas", show_lines=True)
         tabela_rich.add_column("CNPJ", no_wrap=True, justify="center")
         tabela_rich.add_column("Razão Social", no_wrap=True, justify="center")
         tabela_rich.add_column("Alteração", justify="center")
-        tabela_rich.add_column("Data da Operação", justify="center")
+        tabela_rich.add_column("Data do recebimento do e-mail", justify="center")
 
         # Popula a tabela 'rich' com os dados do DataFrame, aplicando formatação condicional à coluna "Alteração"
         for _, row in df.iterrows():
             cnpj_rich = str(row["CNPJ"]).strip()
             razao_social_rich = str(row["Razão Social"]).strip()
             alteracao_rich = str(row["Alteração"]).strip()
-            data_rich = str(row["Data da Operação"]).strip()
+            data_rich = str(row["Data do recebimento do e-mail"]).strip()
 
             # Aplica cores diferentes para as alterações de inclusão, exclusão ou outras
             if alteracao_rich == "INCLUSAO  ANOT.INADIMPLENCIA":
@@ -170,16 +175,15 @@ if emails_nao_lidos:
         console.print(tabela_rich)
 
         try:
-            # --- PARTE 1: PREPARAÇÃO DOS NOMES E CAMINHOS (Seu código) ---
-            # Esta parte está perfeita e deve vir primeiro.
-            # Ela define o nome do NOVO arquivo com base na data mais recente dos dados.
-            data_email_nome = df['Data da Operação'].max().strftime('%Y_%m_%d')
+            # --- PARTE 1: PREPARAÇÃO DOS NOMES E CAMINHOS ---
+            # Essa parte define o nome do NOVO arquivo com base na data mais recente dos dados.
+            data_email_nome = df['Data do recebimento do e-mail'].max().strftime('%Y_%m_%d')
             novo_nome_arquivo = f"Gerencie Carteira_{data_email_nome}.xlsm"
             caminho_novo_excel = os.path.join(pasta_diario, novo_nome_arquivo)
 
             # A sua mensagem de log também está no lugar certo.
             console.print(f"\nIniciando automação do Excel para criar o arquivo: [green]{novo_nome_arquivo}[/green]")
-            console.print(f"Abrindo o arquivo base: [yellow]{nome_arquivo_excel}[/yellow]") # Adicionei um log extra para clareza
+            console.print(f"Abrindo o arquivo base: [green]{nome_arquivo_excel}[/green]") # Adicionei um log extra para clareza
 
             # --- PARTE 2: MANIPULAÇÃO DO EXCEL (Lógica com xlwings) ---
             with xw.App(visible=False) as app:
@@ -194,6 +198,7 @@ if emails_nao_lidos:
                 if ws_email_bd is None:
                     console.print(f"[bold red]Erro Crítico: A planilha 'E-Mail BD' não foi encontrada no arquivo base '{nome_arquivo_excel}'.[/bold red]")
                     wb.close()
+                    os.startfile(caminho_excel) #Abre o excel do dia anterior caso não encontra "E-Mail BD"
                 else:
                     # Se encontrou, continua com o processo
                     
@@ -201,12 +206,44 @@ if emails_nao_lidos:
                     ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
                     
                     wb.api.RefreshAll()
-                    
-                    # SALVA COMO um NOVO arquivo, usando o caminho que você definiu na PARTE 1.
-                    wb.save(caminho_novo_excel)
-                    wb.close()
 
-                    console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
+                    num_novas_linhas=len(df)
+
+                    if num_novas_linhas > 0:
+                        ultima_linha_nova = primeira_linha_vazia + num_novas_linhas - 1
+                        intervalo_verif=f'E{primeira_linha_vazia}:E{ultima_linha_nova}'
+
+                        dados_a_verificar = ws_email_bd.range(intervalo_verif).options(err_to_str=True).value
+                        
+                        erro_encontrado = False
+                        # Garante que dados_coluna_d seja sempre uma lista para o loop
+                        if not isinstance(dados_a_verificar, list):
+                            dados_a_verificar = [dados_a_verificar]
+
+                        for i, valor_celula in enumerate(dados_a_verificar):
+                            if isinstance(valor_celula, str) and valor_celula.startswith('#'):
+                                linha_do_erro = primeira_linha_vazia + i
+                                endereco_celula = f'D{linha_do_erro}'
+                                console.print(f"[bold red]O erro #N/D foi encontrado na célula {endereco_celula} da planilha '{ws_email_bd.name}'.[/bold red]")
+                                erro_encontrado = True
+                    else:
+                        erro_encontrado = False
+                        console.print(Panel.fit(f"[red]Gerencie Carteira veio vazio hoje![/red]", title="ERRO", border_style="red"))
+                        sys.exit()
+
+                    if erro_encontrado: #Se encontrar o erro
+                        wb.save(caminho_novo_excel) #Salva o arquivo
+                        wb.close()
+                        console.print(Panel.fit(f"Arquivo salvo em :\n[yellow]{caminho_novo_excel}[/yellow]", title="Cedente sem gerente", border_style="yellow"))
+                        try:
+                            os.startfile(caminho_novo_excel)
+                        except FileNotFoundError:
+                            console.print("[red]Houve um problema ao abrir o excel[/red]")
+                        os.startfile(r"C:\DIRECIONA\atualiza.exe") #Abre o DIRECIONA para consulta
+                    else: #Se NÃO encontrar o erro
+                        wb.save(caminho_novo_excel) #Salva o arquivo
+                        wb.close()
+                        console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
 
         except Exception as e:
             console.print(f"[bold red]Ocorreu um erro inesperado durante a automação do Excel:[/bold red]")
