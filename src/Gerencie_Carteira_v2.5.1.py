@@ -1,11 +1,7 @@
 #Mantém todas as funcionalidades da versão anterior
 
 #Bug fixes:
-#   -Conserta o problema de que caso não houvesse uma planilha na pasta Diário com a data exatamente do dia anterior
-#    o programa falhava. Isso costumava acontecer nos finais de semana, quando ficávamos um dia ou dois sem receber 
-#    um relatório do Gerencie Carteira. Agora o programa detecta a planilha com a data mais recente, ao invés de uma
-#    com a data exatamente anterior.
-
+#   -Formatação da tabela no terminal, e melhorias para o executável
 
 import win32com.client
 import os
@@ -14,6 +10,8 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 import re
+from IPython.display import display
+from tabulate import tabulate
 
 # Conectar ao Outlook
 outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
@@ -122,8 +120,10 @@ if emails_nao_lidos:
 
         # Remover colunas desnecessárias e garantir que todas as colunas sejam mantidas
         df = df.loc[:, ["CNPJ", "Razão Social", "Alteração", "Data da Operação"]]
-
-        print(df)
+        
+        #Printar corretamente a tabela no terminal
+        cabecalho=["CNPJ", "Razão Social", "Alteração", "Data da Operação"]
+        display(tabulate(df, headers=cabecalho, tablefmt="pipe", stralign="center"))
 
         # Carregar o arquivo Excel e acessar a segunda planilha diretamente
         wb = load_workbook(caminho_excel)
@@ -175,13 +175,16 @@ if emails_nao_lidos:
                     print(f"⚠ Erro encontrado na célula E{linha}. Verifique manualmente.")
                     erros_detectados = True #Caso um erro seja detectado, define a flag como True
 
-            # Se algum erro for detectado, prossegue normalmente e salva as alterações no arquivo Excel
+            # Se algum erro for detectado, prossegue normalmente e salva as alterações no arquivo Excel, abre o arquivo para mexermos e
+            # também abre o direciona para consultarmos o gerente
             if erros_detectados==True:
                 novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
                 caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
+                caminho_direciona = r"C:\DIRECIONA\atualiza.exe"
                 wb.save(caminho_novo_excel)
                 print(f"✅ Arquivo salvo como: '{novo_nome_arquivo}' na pasta Diário do Gerencie Carteira")
                 os.startfile(caminho_novo_excel)
+                os.startfile(caminho_direciona)
 
             #Se nenhum erro for detectado, atualiza a tabela dinâmica
             elif erros_detectados==False:
@@ -202,3 +205,5 @@ if emails_nao_lidos:
         os.startfile(caminho_arquivo)
 else:
     print("⚠ Nenhum e-mail não lido encontrado com o assunto especificado.")
+
+input(str("Pressione ENTER para sair"))
