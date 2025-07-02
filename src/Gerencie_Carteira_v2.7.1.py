@@ -1,8 +1,7 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.7.0:
-# -Mudança do openpyxl para o xlwings, trabalhando em conjunto com um macro na planilha, afim de atualizar
-#  corretamente a tabela dinâmica nova
+#Notas da v2.7.1:
+# -Corrigido o erro "'NoneType' object has no attribute 'Cells'"
 
 import win32com.client
 import os
@@ -171,8 +170,9 @@ if emails_nao_lidos:
         console.print(tabela_rich)
 
         try:
-            # --- PARTE 1: PREPARAÇÃO DOS NOMES E CAMINHOS ---
-            # Essa parte define o nome do NOVO arquivo com base na data mais recente dos dados.
+            # --- PARTE 1: PREPARAÇÃO DOS NOMES E CAMINHOS (Seu código) ---
+            # Esta parte está perfeita e deve vir primeiro.
+            # Ela define o nome do NOVO arquivo com base na data mais recente dos dados.
             data_email_nome = df['Data da Operação'].max().strftime('%Y_%m_%d')
             novo_nome_arquivo = f"Gerencie Carteira_{data_email_nome}.xlsm"
             caminho_novo_excel = os.path.join(pasta_diario, novo_nome_arquivo)
@@ -196,9 +196,8 @@ if emails_nao_lidos:
                     wb.close()
                 else:
                     # Se encontrou, continua com o processo
-                    console.print(f"Planilha 'E-Mail BD' encontrada. Inserindo dados...")
                     
-                    primeira_linha_vazia = ws_email_bd.range('A' + str(ws_email_bd.cells.last_cell.row)).end('up').row + 1
+                    primeira_linha_vazia = ws_email_bd.range('A' + str(ws_email_bd.cells.rows.count)).end('up').row + 1
                     ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
                     
                     wb.api.RefreshAll()
