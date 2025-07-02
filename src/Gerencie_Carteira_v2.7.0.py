@@ -1,18 +1,18 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.6.1:
-#  - Adição das colunas I e J na planilha, para contabilizar as exclusões e inclusões
+#Notas da v2.7.0:
+# -Mudança do openpyxl para o xlwings, trabalhando em conjunto com um macro na planilha, afim de atualizar
+#  corretamente a tabela dinâmica nova
 
 import win32com.client
 import os
 from bs4 import BeautifulSoup
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment
 import re
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+import xlwings as xw
 
 # Inicializa o objeto Console da biblioteca rich para impressões coloridas e formatadas no terminal.
 console = Console()
@@ -82,7 +82,7 @@ if emails_nao_lidos:
     # Processa cada e-mail não lido encontrado
     for email in emails_nao_lidos:
         # Extrai a data do e-mail
-        data_email = email.ReceivedTime.strftime("%d/%m/%Y") # Formata para a coluna "Data da Operação" como DD/MM/AAAA
+        data_email = email.ReceivedTime.date() # Formata para a coluna "Data da Operação" como DD/MM/AAAA
         data_email_nome = email.ReceivedTime.strftime("%Y_%m_%d") # Formata para o nome do arquivo HTML/Excel como AAAA_MM_DD
         caminho_arquivo = None
         
@@ -130,8 +130,10 @@ if emails_nao_lidos:
         # Cria um DataFrame do pandas com os dados e a nova coluna "Data da Operação"
         df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data da Operação"])
         
-        # Converte todas as colunas para o tipo string
-        df = df.astype(str)
+        # Converte as colunas "CNPJ", "Razão Social" e "Alteração"
+        colunas_para_string = ["CNPJ", "Razão Social", "Alteração"]
+        for coluna in colunas_para_string:
+            df[coluna] = df[coluna].astype(str)
         
         # Adiciona um espaço não-quebrante no início de cada valor para formatação
         df["CNPJ"] = df["CNPJ"].apply(lambda x: "\xa0 " + x)
@@ -168,86 +170,48 @@ if emails_nao_lidos:
         # Imprime a tabela formatada no terminal
         console.print(tabela_rich)
 
-        # Carrega o arquivo Excel
-        wb = load_workbook(caminho_excel)
-        # Acessa a segunda planilha (índice 1), que deve ser "E-Mail BD"
-        ws_email_bd = wb.worksheets[1]
-        # Acessa a quarta planilha (índice 3), que deve ser "PROCV GERENTES BD"
-        ws_procv_gerentes_bd = wb.worksheets[2]
-
-        # Verifica se o nome da segunda planilha corresponde ao esperado
-        if ws_email_bd.title != "E-Mail BD":
-            console.print("[bold red]A segunda planilha não tem o nome esperado. Verifique manualmente.[/bold red]")
-            os.startfile(caminho_excel)
-        # Verifica se o nome da quarta planilha corresponde ao esperado
-        elif ws_procv_gerentes_bd.title != "PROCV GERENTES BD":
-            console.print("[bold red]A terceira planilha não tem o nome esperado. Verifique manualmente.[/bold red]")
-            os.startfile(caminho_excel)
-        else:
-            # Encontra a primeira linha vazia na planilha "E-Mail BD" para começar a inserir os novos dados
-            primeira_linha_vazia_email_bd = ws_email_bd.max_row + 1
-
-            # Insere os novos dados do DataFrame na planilha "E-Mail BD"
-            for r_idx, row in enumerate(df.values, start=primeira_linha_vazia_email_bd):
-                for c_idx, value in enumerate(row, start=1):
-                    ws_email_bd.cell(row=r_idx, column=c_idx, value=value)
-
-            # Preenche automaticamente as colunas E, F, G, H, I e J com fórmulas dinâmicas
-            for coluna in ["E", "F", "G", "H", "I", "J"]:
-                # Pega a última linha preenchida antes da inserção dos novos dados
-                ultima_linha = primeira_linha_vazia_email_bd - 1
-                # Captura a fórmula original da célula acima (na última linha preenchida)
-                formula_origem = ws_email_bd[f"{coluna}{ultima_linha}"].value
-                
-                # Se a célula contém uma fórmula, ajusta-a para a nova linha
-                if formula_origem and isinstance(formula_origem, str) and formula_origem.startswith("="):
-                    for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
-                        # Substitui os números das linhas na fórmula para que apontem para a linha correta
-                        nova_formula = re.sub(r'([A-Z])(\d+)', lambda m: f"{m.group(1)}{linha}" if m.group(2) == str(ultima_linha) else m.group(0), formula_origem)
-                        ws_email_bd[f"{coluna}{linha}"].value = nova_formula
-                else:
-                    # Se não for uma fórmula, copia o valor da célula acima (com uma referência relativa simples)
-                    for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
-                        ws_email_bd[f"{coluna}{linha}"].value = f"={coluna}{linha-1}"
-
-            # Aplicar alinhamento centralizado e superior à coluna D (Data da Operação)
-            for cell in ws_email_bd["D"]:
-                cell.alignment = Alignment(horizontal="center", vertical="top")
-
-            # Verificar se cada Razão Social adicionada na coluna B está presente na coluna A da planilha "PROCV GERENTES BD"
-            valores_procv = [cell.value for cell in ws_procv_gerentes_bd['A']]
-            erros = False # Flag para detectar erros
-            for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
-                valor = ws_email_bd[f"B{linha}"].value
-                if valor not in valores_procv:
-                    console.print(f"[bold red]Erro encontrado na célula E{linha}. Verifique manualmente.[/bold red]")
-                    erros = True # Define a flag como True se um erro for detectado
-
-            # Define o nome do novo arquivo Excel a ser salvo com a data formatada como AAAA_MM_DD
+        try:
+            # --- PARTE 1: PREPARAÇÃO DOS NOMES E CAMINHOS ---
+            # Essa parte define o nome do NOVO arquivo com base na data mais recente dos dados.
+            data_email_nome = df['Data da Operação'].max().strftime('%Y_%m_%d')
             novo_nome_arquivo = f"Gerencie Carteira_{data_email_nome}.xlsm"
-            # Constrói o caminho completo para o novo arquivo Excel
             caminho_novo_excel = os.path.join(pasta_diario, novo_nome_arquivo)
 
-            # Se algum erro foi detectado, salva o arquivo, exibe uma mensagem de erro e abre os arquivos relevantes
-            if erros:
-                wb.save(caminho_novo_excel)
-                console.print(Panel.fit(f"Arquivo salvo como: [green]{novo_nome_arquivo}[/green]", title="Cedente Novo", border_style="yellow"))
-                os.startfile(caminho_novo_excel)
-                os.startfile(r"C:\DIRECIONA\atualiza.exe")
-            # Se nenhum erro foi detectado, tenta atualizar a tabela dinâmica no Excel
-            else:
-                try:
-                    # Acessa a primeira aba (índice 0), que deve ser "Tabela Dinâmica"
-                    ws_tabela_dinamica = wb.worksheets[0]
-                    # Define a propriedade para que a tabela dinâmica seja atualizada ao abrir o arquivo
-                    pivot = ws_tabela_dinamica._pivots[0]
-                    pivot.cache.refreshOnLoad = True
-                    # Salva o arquivo Excel
+            # A sua mensagem de log também está no lugar certo.
+            console.print(f"\nIniciando automação do Excel para criar o arquivo: [green]{novo_nome_arquivo}[/green]")
+            console.print(f"Abrindo o arquivo base: [yellow]{nome_arquivo_excel}[/yellow]") # Adicionei um log extra para clareza
+
+            # --- PARTE 2: MANIPULAÇÃO DO EXCEL (Lógica com xlwings) ---
+            with xw.App(visible=False) as app:
+                # Abre o arquivo MAIS RECENTE JÁ EXISTENTE para usar como base.
+                # A variável 'caminho_excel' já foi definida no início do seu script.
+                wb = app.books.open(caminho_excel) 
+                
+                # Tenta selecionar a planilha
+                ws_email_bd = wb.sheets['E-Mail BD']
+
+                # Verificação de segurança para garantir que a planilha existe
+                if ws_email_bd is None:
+                    console.print(f"[bold red]Erro Crítico: A planilha 'E-Mail BD' não foi encontrada no arquivo base '{nome_arquivo_excel}'.[/bold red]")
+                    wb.close()
+                else:
+                    # Se encontrou, continua com o processo
+                    console.print(f"Planilha 'E-Mail BD' encontrada. Inserindo dados...")
+                    
+                    primeira_linha_vazia = ws_email_bd.range('A' + str(ws_email_bd.cells.last_cell.row)).end('up').row + 1
+                    ws_email_bd.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
+                    
+                    wb.api.RefreshAll()
+                    
+                    # SALVA COMO um NOVO arquivo, usando o caminho que você definiu na PARTE 1.
                     wb.save(caminho_novo_excel)
-                    console.print(Panel.fit(f"Tabela dinâmica atualizada com sucesso!\nArquivo salvo como: [green]{novo_nome_arquivo}[/green]", title="Sucesso", border_style="green"))
-                except Exception as e:
-                    # Informa se houve um erro ao tentar atualizar a tabela dinâmica
-                    console.print(f"[bold red]Erro ao tentar atualizar a tabela dinâmica:[/bold red] {e}")
+                    wb.close()
+
+                    console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
+
+        except Exception as e:
+            console.print(f"[bold red]Ocorreu um erro inesperado durante a automação do Excel:[/bold red]")
+            console.print(e)
     else:
         # Informa se nenhuma tabela válida foi encontrada nos arquivos HTML
         console.print("[bold yellow]Nenhuma tabela válida encontrada nos arquivos HTML.[/bold yellow]")
