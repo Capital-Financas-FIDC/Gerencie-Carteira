@@ -1,10 +1,11 @@
-#Esta versão busca e encontra o email corretamente, baixa e salva o html da pasta correta,
-#copia e cola os dados corretamente no banco de dados do gerencie carteira, puxa com referência dinâmica corretamente,
-#e salva num novo arquivo nomeado corretamente
+#Este programa encontra o email, salva o html na pasta certa, cola as informações contidas no HTML
+#na planilha do excel, puxa com referência dinâmica tudo certinho, verifica se o
+#cedente já está no procv e se não estiver avisa
+
 
 import win32com.client
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from bs4 import BeautifulSoup
 import pandas as pd
 from openpyxl import load_workbook
@@ -104,52 +105,55 @@ if emails_nao_lidos:
 
         # Carregar o arquivo Excel e acessar a segunda planilha diretamente
         wb = load_workbook(caminho_excel)
-        ws = wb.worksheets[1]  # A segunda aba, garantindo que seja "E-Mail BD"
+        ws_email_bd = wb.worksheets[1]  # A segunda aba, garantindo que seja "E-Mail BD"
+        ws_procv_gerentes_bd = wb.worksheets[3]  # A quarta aba, garantindo que seja "PROCV GERENTES BD"
 
         # Verificar se o nome da planilha corresponde ao esperado
-        if ws.title != "E-Mail BD":
+        if ws_email_bd.title != "E-Mail BD":
             print("⚠ A segunda planilha não tem o nome esperado. Verifique manualmente.")
+        elif ws_procv_gerentes_bd.title != "PROCV GERENTES BD":
+            print("⚠ A quarta planilha não tem o nome esperado. Verifique manualmente.")
         else:
-            # Encontrar a primeira linha vazia
-            primeira_linha_vazia = ws.max_row + 1
+            # Encontrar a primeira linha vazia na planilha "E-Mail BD"
+            primeira_linha_vazia_email_bd = ws_email_bd.max_row + 1
 
-            # Inserir os novos dados
-            for r_idx, row in enumerate(df.values, start=primeira_linha_vazia):
+            # Inserir os novos dados na planilha "E-Mail BD"
+            for r_idx, row in enumerate(df.values, start=primeira_linha_vazia_email_bd):
                 for c_idx, value in enumerate(row, start=1):
-                    ws.cell(row=r_idx, column=c_idx, value=value)
+                    ws_email_bd.cell(row=r_idx, column=c_idx, value=value)
 
             # **Preencher automaticamente as células E, F, G e H COM REFERÊNCIA DINÂMICA CORRETA**
             for coluna in ["E", "F", "G", "H"]:  # Percorre cada coluna
-                ultima_linha_preenchida = primeira_linha_vazia - 1  # Última linha antes de colar os novos dados
-                formula_origem = ws[f"{coluna}{ultima_linha_preenchida}"].value  # Captura a fórmula original da célula acima
+                ultima_linha_preenchida_email_bd = primeira_linha_vazia_email_bd - 1  # Última linha antes de colar os novos dados
+                formula_origem_email_bd = ws_email_bd[f"{coluna}{ultima_linha_preenchida_email_bd}"].value  # Captura a fórmula original da célula acima
 
                 # Verifica se a célula contém uma fórmula
-                if formula_origem and isinstance(formula_origem, str) and formula_origem.startswith("="):  
-                    for linha in range(primeira_linha_vazia, ws.max_row + 1):
-                        nova_formula = re.sub(r'([A-Z])(\d+)', lambda match: f"{match.group(1)}{linha}" if match.group(2) == str(ultima_linha_preenchida) else match.group(0), formula_origem)
-                        ws[f"{coluna}{linha}"].value = nova_formula  # Aplica a fórmula ajustada para a linha correta
+                if formula_origem_email_bd and isinstance(formula_origem_email_bd, str) and formula_origem_email_bd.startswith("="):  
+                    for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
+                        nova_formula = re.sub(r'([A-Z])(\d+)', lambda match: f"{match.group(1)}{linha}" if match.group(2) == str(ultima_linha_preenchida_email_bd) else match.group(0), formula_origem_email_bd)
+                        ws_email_bd[f"{coluna}{linha}"].value = nova_formula  # Aplica a fórmula ajustada para a linha correta
 
                 else:
-                    for linha in range(primeira_linha_vazia, ws.max_row + 1):
-                        ws[f"{coluna}{linha}"].value = f"={coluna}{linha-1}"  
+                    for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
+                        ws_email_bd[f"{coluna}{linha}"].value = f"={coluna}{linha-1}"  
 
             # Aplicar alinhamento à coluna D (Data da Operação)
-            for cell in ws["D"]:
+            for cell in ws_email_bd["D"]:
                 cell.alignment = Alignment(horizontal="center", vertical="top")
 
-        # Salvar as alterações no arquivo Excel
+            # Verificar se cada informação adicionada na coluna B está presente na coluna A da planilha "PROCV GERENTES BD"
+            valores_procv_gerentes_bd = [cell.value for cell in ws_procv_gerentes_bd['A']]
+            for linha in range(primeira_linha_vazia_email_bd, ws_email_bd.max_row + 1):
+                valor_coluna_b = ws_email_bd[f"B{linha}"].value
+                if valor_coluna_b not in valores_procv_gerentes_bd:
+                    print(f"⚠ Erro encontrado na célula E{linha}. Verifique manualmente.")
 
-            # Definir o novo nome do arquivo
+            # Salvar as alterações no arquivo Excel
             novo_nome_arquivo = f"Gerencie Carteira_{data_email.replace('/', '_')}.xlsx"
-
-            # Definir o caminho para salvar o novo arquivo
             caminho_novo_excel = os.path.join(r"C:\Users\comercial05\Documents\Gerencie Carteira\Diário", novo_nome_arquivo)
-
-            # Salvar como (com novo nome)
             wb.save(caminho_novo_excel)
 
             print(f"✅ Arquivo salvo como: {caminho_novo_excel}")
-
             print(f"✅ Dados copiados para a planilha 'E-Mail BD', com autopreenchimento das colunas E, F, G e H baseado na última linha acima.")
     else:
         print("⚠ Nenhuma tabela válida encontrada nos arquivos HTML.")
