@@ -1,8 +1,8 @@
 #Mantém todas as funcionalidades da versão anterior
 
-#Notas da v2.8.0:
-# -Mudança na obtenção de diretórios e pathings:
-#   -Agora tudo fica dentro de um arquivo chamado config.ini, que pode ser alterado à vontade pelo usuário
+#Notas da v2.8.1:
+# -Corrige o problema da busca pela tabela no arquivo html, substituindo por uma busca inteligente
+# -Normaliza as strings da rich para não haver erro na hora da leitura
 
 import win32com.client
 import os
@@ -95,7 +95,9 @@ if emails_nao_lidos:
             datas_encontradas_lista.append(match.group(1))
     if not datas_encontradas_lista:
         console.print("[bold yellow]Nenhum arquivo com data foi encontrado na pasta! Verifique manualmente[/bold yellow]")
+        console.print(f"Pasta verificada: [yellow]{pasta_diario_excel}[/yellow]")
         os.startfile(pasta_diario)
+        input("\nPressione ENTER para sair")
         sys.exit() # Sair se nenhum arquivo base for encontrado
 
     # Se datas de arquivos Excel foram encontradas, determina a data da planilha mais recente
@@ -136,13 +138,17 @@ if emails_nao_lidos:
             with open(caminho_arquivo, "r", encoding="utf-8") as arquivo:
                 soup = BeautifulSoup(arquivo, "html.parser")
 
-            tabelas = soup.find_all("table")
-            # Verifica se há mais de uma tabela e seleciona a segunda (índice 1)
-            if len(tabelas) > 1:
-                tabela = tabelas[1]
-                tbody = tabela.find("tbody")
-                # Encontra todas as linhas da tabela, priorizando 'tbody' se existir
-                linhas = tbody.find_all("tr") if tbody else tabela.find_all("tr")
+            # --- BUSCA INTELIGENTE PELA TABELA DE DADOS ---
+            # Em vez de pegar a "segunda tabela", procuramos pela tabela que contenha
+            # os textos 'CNPJ' e 'Razão Social', que são únicos da tabela de dados.
+            tabela_dados = soup.find(lambda tag: tag.name == 'table' and 
+                                                 'CNPJ' in tag.get_text() and 
+                                                 'Razão Social' in tag.get_text())
+            # Após a busca, verificamos se a tabela foi realmente encontrada.
+            if tabela_dados:
+                # Se encontrou a tabela, o código prossegue normalmente.
+                tbody = tabela_dados.find("tbody")
+                linhas = tbody.find_all("tr") if tbody else tabela_dados.find_all("tr")
 
                 # Itera sobre as linhas da tabela para extrair os dados
                 for linha in linhas:
@@ -156,6 +162,14 @@ if emails_nao_lidos:
                         # Adiciona os dados à lista se não forem os cabeçalhos da tabela
                         if "CNPJ" not in cnpj and "Razão Social" not in razao_social and "Alteração" not in alteracao:
                             dados.append([cnpj, razao_social, alteracao, data_email])
+            
+            else:
+                # Se a tabela de dados não foi encontrada no arquivo, informa o erro.
+                console.print(f"[bold red]ERRO no arquivo '{nome_arquivo}':[/bold red]")
+                console.print("[yellow]Nenhuma tabela com os cabeçalhos 'CNPJ' e 'Razão Social' foi encontrada.[/yellow]")
+                os.startfile(caminho_arquivo) # Abre o arquivo HTML para inspeção manual.
+            
+            # --- FIM DA BUSCA INTELIGENTE ---
 
     # Se houver dados extraídos, processa-os e insere-os no Excel
     if dados:
@@ -189,10 +203,12 @@ if emails_nao_lidos:
             alteracao_rich = str(row["Alteração"]).strip()
             data_rich = str(row["Data do recebimento do e-mail"]).strip()
 
+            alteracao_normalizada = alteracao_rich.upper().replace('  ', ' ')
+
             # Aplica cores diferentes para as alterações de inclusão, exclusão ou outras
-            if alteracao_rich == "INCLUSAO  ANOT.INADIMPLENCIA":
+            if alteracao_normalizada == "INCLUSAO ANOT.INADIMPLENCIA":
                 alteracao_rich_formatada = f"[bold red]{alteracao_rich}[/bold red]"
-            elif alteracao_rich == "EXCLUSAO  ANOT.INADIMPLENCIA":
+            elif alteracao_rich == "EXCLUSAO ANOT.INADIMPLENCIA":
                 alteracao_rich_formatada = f"[bold #1cb900]{alteracao_rich}[/bold #1cb900]"
             else:
                 alteracao_rich_formatada = f"[bold yellow]{alteracao_rich}[/bold yellow]"
