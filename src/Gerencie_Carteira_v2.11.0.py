@@ -1,8 +1,10 @@
 # ==============================================================================
-# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.9.0 (Refatorado)
+# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.11.0
 #
-# NOTAS DA VERSÃO 2.10.0:
-# - Inclusão de tracebacks e logging para depuração
+# NOTAS DA VERSÃO:
+# - Adicionada funcionalidade para criar uma cópia da planilha gerada em uma
+#   pasta separada, removendo macros e salvando como .xlsx.
+# - O script agora deleta a cópia do dia anterior na pasta de destino.
 # ==============================================================================
 
 import win32com.client
@@ -14,6 +16,7 @@ import sys
 import configparser
 import time
 import logging
+import glob
 from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.table import Table
@@ -23,27 +26,19 @@ from rich.traceback import Traceback
 # Inicializa o console globalmente para ser usado por qualquer função
 console = Console()
 
-def configurar_logging(config): # <-- Adicione 'config' como argumento
+def configurar_logging(config):
     """Configura o sistema de logging para salvar em arquivo e exibir no console."""
-    
     FORMATO_LOG = "%(asctime)s - %(levelname)s - %(message)s"
-    
-    # Tenta ler o caminho da pasta de logs do config.ini
     try:
         caminho_pasta_logs = config.get('Paths', 'pasta_logs')
     except (configparser.NoSectionError, configparser.NoOptionError):
-        caminho_pasta_logs = None # Define como None se a chave não existir
-
-    # Se o caminho for fornecido e a pasta não existir, crie-a.
+        caminho_pasta_logs = None
     if caminho_pasta_logs:
         os.makedirs(caminho_pasta_logs, exist_ok=True)
         log_file = os.path.join(caminho_pasta_logs, 'automacao_gerencie_carteira.log')
     else:
-        # Fallback: se a pasta não for especificada, salva na mesma pasta do script.
         script_path = os.path.dirname(os.path.realpath(__file__))
         log_file = os.path.join(script_path, 'automacao_gerencie_carteira.log')
-
-    # A configuração do logging continua a mesma...
     logging.basicConfig(
         level="INFO",
         format=FORMATO_LOG,
@@ -63,27 +58,20 @@ def carregar_configuracoes(caminho_config_file):
         console.print(f"[bold red]ERRO CRÍTICO: Arquivo '{caminho_config_file}' não encontrado.[/bold red]")
         logging.critical(f"ERRO CRÍTICO: Arquivo '{caminho_config_file}' não encontrado.")
         sys.exit("Pressione ENTER para sair")
-
     config.read(caminho_config_file, encoding='utf-8')
-
     try:
-        # Valida se as seções e chaves necessárias existem
         _ = config['Paths']['pasta_destino_html']
         _ = config['Paths']['pasta_diario_excel']
+        _ = config['Paths']['pasta_copia_excel'] # <-- VERIFICA A NOVA CHAVE
         _ = config['Excel']['planilha_dados']
         _ = config['Excel']['coluna_verificacao']
         _ = config['Email']['assunto_procurado']
-    except KeyError:
-        trace = Traceback(
-            show_locals=True,
-            word_wrap=True,
-            width=120
-        )
-        console.print("\n[on red]ERRO CRÍTICO: Chave de configuração não encontrada no 'config.ini'[/on red]")
+    except KeyError as e:
+        trace = Traceback(show_locals=True, word_wrap=True, width=120)
+        console.print(f"\n[on red]ERRO CRÍTICO: Chave de configuração '{e.args[0]}' não encontrada no 'config.ini'[/on red]")
         console.print(trace)
-        logging.critical(f"ERRO CRÍTICO: Chave de configuração não encotrada no aquivo config.ini")
+        logging.critical(f"ERRO CRÍTICO: Chave de configuração não encontrada no arquivo config.ini")
         sys.exit("Pressione ENTER para sair")
-        
     return config
 
 def encontrar_arquivo_base_excel(config):
@@ -93,19 +81,15 @@ def encontrar_arquivo_base_excel(config):
     """
     pasta_diario = config['Paths']['pasta_diario_excel']
     padrao_nome = re.compile(r"Gerencie Carteira_(\d{4}_\d{2}_\d{2})")
-    
     arquivos_diario = os.listdir(pasta_diario)
     datas_encontradas = [match.group(1) for arquivo in arquivos_diario if (match := padrao_nome.search(arquivo))]
-
     if not datas_encontradas:
         console.print(f"[bold yellow]Nenhum arquivo base encontrado na pasta:[/bold yellow] [cyan]{pasta_diario}[/cyan]")
         logging.critical(f"Nenhum arquivo base encontrado na pasta: {pasta_diario}")
         os.startfile(pasta_diario)
         sys.exit("Pressione ENTER para sair")
-
     ultima_data_str = max(datas_encontradas, key=lambda d: tuple(map(int, d.split('_'))))
     nome_arquivo_base = f"Gerencie Carteira_{ultima_data_str}.xlsm"
-    
     return os.path.join(pasta_diario, nome_arquivo_base)
 
 def buscar_emails_novos(config):
@@ -115,10 +99,9 @@ def buscar_emails_novos(config):
     """
     assunto = config['Email']['assunto_procurado']
     outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-    inbox = outlook.GetDefaultFolder(6)  # 6 = Caixa de Entrada
+    inbox = outlook.GetDefaultFolder(6)
     messages = inbox.Items
     messages.Sort("[ReceivedTime]", False)
-    
     emails_filtrados = [msg for msg in messages if msg.Subject == assunto and msg.UnRead]
     return emails_filtrados
 
@@ -139,43 +122,27 @@ def extrair_dados_dos_anexos(emails, config):
                     caminho_arquivo_html = os.path.join(pasta_destino_html, nome_arquivo_html)
                     anexo.SaveAsFile(caminho_arquivo_html)
                     console.print(f"Anexo salvo: [green]'{nome_arquivo_html}'[/green]")
-
                     with open(caminho_arquivo_html, "r", encoding="utf-8") as f:
                         soup = BeautifulSoup(f, "html.parser")
-                    
-                    # --- LINHA CORRIGIDA ---
-                    # Esta busca é mais robusta. Ela procura uma tag <table> que em seu
-                    # conteúdo de texto (incluindo todas as sub-tags) tenha as palavras-chave.
-                    tabela_dados = soup.find(lambda tag: tag.name == 'table' and 
-                                                         'CNPJ' in tag.get_text() and 
-                                                         'Razão Social' in tag.get_text())
-                    
+                    tabela_dados = soup.find(lambda tag: tag.name == 'table' and 'CNPJ' in tag.get_text() and 'Razão Social' in tag.get_text())
                     if not tabela_dados:
                         console.print(f"[bold red]ERRO: Nenhuma tabela com 'CNPJ' e 'Razão Social' encontrada em '{nome_arquivo_html}'.[/bold red]")
                         logging.critical(f"ERRO: Nenhuma tabela com 'CNPJ' e 'Razão Social' encontrada em '{nome_arquivo_html}'.")
-                        # Abre o arquivo para inspeção manual
                         os.startfile(caminho_arquivo_html)
                         continue
-
                     for linha in tabela_dados.find_all("tr")[1:]:
                         colunas = [td.get_text(strip=True) for td in linha.find_all("td")]
                         if len(colunas) >= 3:
                             dados_extraidos.append([colunas[0], colunas[1], colunas[2], data_email])
-                    
                     email.UnRead = False
                     console.print(f"E-mail de [cyan]{data_email.strftime('%d/%m/%Y')}[/cyan] marcado como lido.")
                     break
         except Exception:
-            trace = Traceback (
-                show_locals=True,
-                word_wrap=True,
-                width=120
-            )
+            trace = Traceback(show_locals=True, word_wrap=True, width=120)
             console.print(f"\n[on red]ERRO CRÍTICO: Erro ao processar o email de {data_email} [/on red]")
             console.print(trace)
             logging.critical(f"ERRO CRÍTICO: Erro ao processar o email de {data_email}")
             continue
-
     if not dados_extraidos: return pd.DataFrame()
     df = pd.DataFrame(dados_extraidos, columns=["CNPJ", "Razão Social", "Alteração", "Data do recebimento do e-mail"])
     df["Data do recebimento do e-mail"] = pd.to_datetime(df["Data do recebimento do e-mail"], errors='coerce')
@@ -190,7 +157,6 @@ def apresentar_dados_no_console(df):
     tabela_rich.add_column("Razão Social", justify="left", min_width=30)
     tabela_rich.add_column("Alteração", justify="left")
     tabela_rich.add_column("Data E-mail", justify="center")
-
     for _, row in df.iterrows():
         alteracao_norm = str(row["Alteração"]).strip().upper()
         if "INCLUSAO" in alteracao_norm:
@@ -199,27 +165,26 @@ def apresentar_dados_no_console(df):
             cor = "bold #1cb900"
         else:
             cor = "bold yellow"
-        
         tabela_rich.add_row(
             str(row["CNPJ"]),
             str(row["Razão Social"]),
             f"[{cor}]{row['Alteração']}[/]",
             row["Data do recebimento do e-mail"].strftime('%d/%m/%Y')
         )
-    
     console.print("\n")
     console.print(tabela_rich)
 
 def atualizar_planilha_excel(df, config, caminho_base_excel):
     """
-    Executa toda a lógica de manipulação do Excel: abre a base, verifica a
-    integridade, insere os dados, verifica erros e salva o novo arquivo.
-    VERSÃO ROBUSTA: Garante uma nova instância do Excel e adiciona pausas.
+    Executa a manipulação do Excel: abre a base, insere dados, salva o novo arquivo,
+    e cria uma cópia .xlsx sem macros em outra pasta, substituindo a antiga.
     """
     nome_planilha = config['Excel']['planilha_dados']
     col_verificacao = config['Excel']['coluna_verificacao']
-    executavel = config['Paths']['executavel_direciona']
+    executavel = config.get('Paths', 'executavel_direciona', fallback=None) # Usar get com fallback
     pasta_diario = config['Paths']['pasta_diario_excel']
+    pasta_copia = config['Paths']['pasta_copia_excel']
+
     data_nome = df['Data do recebimento do e-mail'].max().strftime('%Y_%m_%d')
     novo_nome_arquivo = f"Gerencie Carteira_{data_nome}.xlsm"
     caminho_novo_excel = os.path.join(pasta_diario, novo_nome_arquivo)
@@ -229,39 +194,18 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
     app = None
     wb = None
     try:
-        # --- MUDANÇA 1: GARANTIR UMA INSTÂNCIA NOVA E ISOLADA ---
-        # add_book=False inicia o Excel sem nenhuma pasta de trabalho aberta.
         app = xw.App(visible=False, add_book=False)
-        
-        # Agora abrimos nossa pasta de trabalho nesta instância limpa.
         wb = app.books.open(caminho_base_excel)
+        time.sleep(1)
 
-        # --- MUDANÇA 2: PAUSA DE SEGURANÇA ---
-        # Dá ao Excel 1 segundo para processar completamente a abertura do arquivo.
-        time.sleep(1) 
-
-        # 1. Verificação de Integridade (continua igual)
-        try:
-            ws = wb.sheets[nome_planilha]
-            last_row = ws.range('A' + str(ws.cells.rows.count)).end('up').row
-            if last_row > 1 and not ws.range(f'{col_verificacao}{last_row}').formula.startswith('='):
-                raise ValueError(f"Coluna '{col_verificacao}' não contém fórmula.")
-        except Exception:
-            trace = Traceback(
-                show_locals=True,
-                word_wrap=True,
-                width=120
-            )
-            console.print("\n[on red]Planilha base do excel inválida!")
-            console.print(trace)
-            logging.critical(f"Planilha base do excel inválida!")
-            os.startfile(caminho_base_excel)
-            return
-
-        # O resto da lógica permanece o mesmo...
+        ws = wb.sheets[nome_planilha]
+        last_row = ws.range('A' + str(ws.cells.rows.count)).end('up').row
+        if last_row > 1 and not ws.range(f'{col_verificacao}{last_row}').formula.startswith('='):
+            raise ValueError(f"Coluna '{col_verificacao}' não contém fórmula.")
+        
         primeira_linha_vazia = ws.range('A' + str(ws.cells.rows.count)).end('up').row + 1
         ws.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
-
+        
         erro_encontrado = False
         ult_linha_nova = primeira_linha_vazia + len(df) - 1
         dados_verificados = ws.range(f'{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}').options(err_to_str=True).value
@@ -269,38 +213,61 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
         if any(isinstance(v, str) and v.startswith('#') for v in dados_verificados):
             erro_encontrado = True
         
+        # Salva o arquivo principal com macros (.xlsm)
         wb.save(caminho_novo_excel)
+        
         if erro_encontrado:
-            console.print(Panel.fit(f"Arquivo salvo com pendências em:\n[yellow]{caminho_novo_excel}[/yellow]", title="Ação Necessária", border_style="yellow"))
-            logging.warning(f"Arquivo salvo com pendências em: {caminho_novo_excel}")
-            if os.path.exists(executavel): os.startfile(executavel)
+            console.print(Panel.fit(f"Arquivo principal salvo com pendências em:\n[yellow]{caminho_novo_excel}[/yellow]", title="Ação Necessária", border_style="yellow"))
+            logging.warning(f"Arquivo principal salvo com pendências em: {caminho_novo_excel}")
+            if executavel and os.path.exists(executavel): os.startfile(executavel)
         else:
-            console.print(Panel.fit(f"Arquivo salvo e atualizado com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
-            logging.info(f"Arquivo salvo e atualizado com sucesso em: {caminho_novo_excel}")
+            console.print(Panel.fit(f"Arquivo principal salvo com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
+
+        # --- INÍCIO DA FUNCIONALIDADE TEMP ---
+        
+        # 1. Deletar cópia antiga (.xlsx) na pasta de destino
+        console.print(f"Verificando arquivos antigos na pasta de cópia: [cyan]{pasta_copia}[/cyan]")
+        arquivos_antigos = glob.glob(os.path.join(pasta_copia, "*.xlsx"))
+        for f in arquivos_antigos:
+            try:
+                os.remove(f)
+                console.print(f"Arquivo antigo removido: [yellow]{os.path.basename(f)}[/yellow]")
+            except OSError:
+                traceos = Traceback(show_locals=True, word_wrap=True, width=120)
+                console.print(f"[bold red]ERRO ao remover o arquivo antigo '{f}': {e}[/bold red]")
+                console.print(traceos)
+                logging.error(f"ERRO ao remover o arquivo antigo '{f}': {e}")
+
+
+        # 2. Criar o nome e caminho para a nova cópia .xlsx
+        nome_copia_xlsx = f"Gerencie Carteira_{data_nome}.xlsx"
+        caminho_copia_xlsx = os.path.join(pasta_copia, nome_copia_xlsx)
+
+        # 3. Salvar a cópia sem macros (.xlsx)
+        # O xlwings remove as macros automaticamente ao salvar de .xlsm para .xlsx
+        wb.save(caminho_copia_xlsx)
+        console.print(Panel.fit(f"Cópia sem macros salva com sucesso em:\n[green]{caminho_copia_xlsx}[/green]", title="Cópia Gerada", border_style="green"))
+        
+        # --- FIM DA FUNCIONALIDADE TEMP ---
 
     except Exception:
-        trace = Traceback(
-            show_locals=True,
-            word_wrap=True,
-            width=120
-        )
-        console.print("\n[on red]ERRO CRÍTICO: Ocorreu um erro inesperado na automação do excel![/on red]")
+        trace = Traceback(show_locals=True, word_wrap=True, width=120)
+        console.print("\n[on red]ERRO CRÍTICO: Ocorreu um erro inesperado na automação do Excel![/on red]")
         console.print(trace)
-        logging.critical(f"ERRO CRÍTICO: Ocorreu um erro inesperado na automação do excel!")
+        logging.critical(f"ERRO CRÍTICO: Ocorreu um erro inesperado na automação do Excel!")
     finally:
-        # --- MUDANÇA 3: LIMPEZA ROBUSTA ---
-        # Garante que a pasta de trabalho seja fechada antes de fechar o app.
         if wb:
             wb.close()
         if app:
             app.quit()
         console.print("[dim]Processo do Excel finalizado com segurança.[/dim]")
 
+
 def main():
     """
     Função principal que orquestra a execução do script.
     """
-    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira'[/bold cyan]"))
+    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.11.0[/bold cyan]"))
     
     # 1. Carregar Configurações
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -308,15 +275,15 @@ def main():
     config_file = os.path.join(root_dir, 'config', 'config.ini')
     config = carregar_configuracoes(config_file)
 
-    # 2. Configurar Logging (agora recebe o objeto 'config')
+    # 2. Configurar Logging
     configurar_logging(config) 
 
     # 3. Buscar E-mails
     emails = buscar_emails_novos(config)
     if not emails:
         console.print("[bold yellow]Nenhum e-mail não lido encontrado com o assunto especificado.[/bold yellow]")
-        logging.critical(f"Nenhum e-mail não lido encontrado com o assunto especificado.")
-        return # Encerra a função principal
+        logging.info("Nenhum e-mail não lido encontrado.")
+        return 
 
     console.print(f"Encontrados [bold green]{len(emails)}[/bold green] e-mail(s) para processar.")
     
@@ -324,7 +291,7 @@ def main():
     df_dados = extrair_dados_dos_anexos(emails, config)
     if df_dados.empty:
         console.print("[bold yellow]Nenhum dado válido foi extraído dos anexos.[/bold yellow]")
-        logging.critical(f"Nenhum dado válido foi extraído dos anexos.")
+        logging.warning("Nenhum dado válido foi extraído dos anexos.")
         return
         
     # 5. Apresentar Dados no Console
@@ -338,5 +305,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    input("\nPressione ENTER para sair")
+    try:
+        main()
+    except SystemExit as e:
+        # Captura saídas limpas (como "Pressione ENTER para sair") para evitar Traceback
+        if e.code is not None:
+             console.print(f"\n[yellow]Script encerrado pelo usuário ou por erro previsto.[/yellow]")
+    except Exception:
+        # Captura qualquer outra exceção inesperada
+        console.print("\n[on red]UM ERRO GLOBAL INESPERADO OCORREU:[/on red]")
+        console.print(Traceback(show_locals=True, word_wrap=True, width=120))
+        logging.critical("Um erro global inesperado ocorreu", exc_info=True)
+    finally:
+        input("\nPressione ENTER para sair")
