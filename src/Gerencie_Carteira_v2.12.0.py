@@ -1,10 +1,9 @@
 # ==============================================================================
-# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.11.0
+# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.12.0
 #
 # NOTAS DA VERSÃO:
-# - Adicionada funcionalidade para criar uma cópia da planilha gerada em uma
-#   pasta separada, removendo macros e salvando como .xlsx.
-# - O script agora deleta a cópia do dia anterior na pasta de destino.
+# - Adicionada a funcionalidade de uma planilha com a base consolidada que é atualizada
+#   sem alterar seu nome, apenas salvando sobre si mesma.
 # ==============================================================================
 
 import win32com.client
@@ -62,10 +61,12 @@ def carregar_configuracoes(caminho_config_file):
     try:
         _ = config['Paths']['pasta_destino_html']
         _ = config['Paths']['pasta_diario_excel']
-        _ = config['Paths']['pasta_copia_excel'] # <-- VERIFICA A NOVA CHAVE
+        _ = config['Paths']['pasta_copia_excel']
         _ = config['Excel']['planilha_dados']
         _ = config['Excel']['coluna_verificacao']
         _ = config['Email']['assunto_procurado']
+        _ = config['BaseConsolidada']['pasta_base_consolidada']
+        _ = config['BaseConsolidada']['nome_arquivo_consolidado']
     except KeyError as e:
         trace = Traceback(show_locals=True, word_wrap=True, width=120)
         console.print(f"\n[on red]ERRO CRÍTICO: Chave de configuração '{e.args[0]}' não encontrada no 'config.ini'[/on red]")
@@ -260,14 +261,76 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
             wb.close()
         if app:
             app.quit()
-        console.print("[dim]Processo do Excel finalizado com segurança.[/dim]")
+
+def atualizar_base_consolidada(df, config):
+    """
+    Executa o mesmo processo de atualização na base consolidada, mas
+    apenas salva o arquivo existente, sem alterar seu nome.
+    """
+    pasta_base = config['BaseConsolidada']['pasta_base_consolidada']
+    nome_arquivo = config['BaseConsolidada']['nome_arquivo_consolidado']
+    caminho_base_consolidada = os.path.join(pasta_base, nome_arquivo)
+
+    # Usa as mesmas configurações de planilha e coluna de verificação do processo principal
+    nome_planilha = config['Excel']['planilha_dados']
+    col_verificacao = config['Excel']['coluna_verificacao']
+    
+    console.print(f"\nIniciando processo de atualização da BASE CONSOLIDADA")
+
+    if not os.path.exists(caminho_base_consolidada):
+        console.print(Panel.fit(f"A base consolidada não foi encontrada no caminho:\n[red]{caminho_base_consolidada}[/red]\nVerifique a seção [BaseConsolidada] no arquivo `config.ini`.", title="ERRO: Arquivo Não Encontrado", border_style="red"))
+        return
+
+    console.print(f"Arquivo: [cyan]{nome_arquivo}[/cyan]")
+    
+    app = None
+    wb = None
+    try:
+        app = xw.App(visible=False, add_book=False)
+        wb = app.books.open(caminho_base_consolidada)
+        time.sleep(1)
+
+        ws = wb.sheets[nome_planilha]
+        
+        primeira_linha_vazia = ws.range('A' + str(ws.cells.rows.count)).end('up').row + 1
+        
+        console.print(f"Inserindo [bold green]{len(df)}[/bold green] novas linhas na aba [cyan]'{nome_planilha}'[/cyan] a partir da linha {primeira_linha_vazia}.")
+        ws.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
+        
+        # Lógica de verificação de erro, igual à função principal
+        erro_encontrado = False
+        ult_linha_nova = primeira_linha_vazia + len(df) - 1
+        dados_verificados = ws.range(f'{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}').options(err_to_str=True).value
+        if not isinstance(dados_verificados, list): dados_verificados = [dados_verificados]
+        if any(isinstance(v, str) and v.startswith('#') for v in dados_verificados):
+            erro_encontrado = True
+        
+        # --- PONTO CHAVE: SALVAR O ARQUIVO SOBRE ELE MESMO ---
+        wb.save() 
+        
+        if erro_encontrado:
+            console.print(Panel.fit(f"Base consolidada atualizada, mas com [bold]PENDÊNCIAS[/bold] (erros de fórmula encontrados).\nArquivo: [yellow]{caminho_base_consolidada}[/yellow]", title="Ação Necessária", border_style="yellow"))
+        else:
+            console.print(Panel.fit(f"Base consolidada atualizada com sucesso!\nArquivo: [green]{caminho_base_consolidada}[/green]", title="Sucesso", border_style="green"))
+
+    except Exception:
+        trace = Traceback(show_locals=True, word_wrap=True, width=120)
+        console.print(f"\n[on red]ERRO CRÍTICO: Ocorreu um erro (base consolidada)![/on red]")
+        console.print(trace)
+    finally:
+        if wb:
+            wb.close()
+        if app:
+            app.quit()
+        console.print("[dim]Processo do Excel finalizado[/dim]")
+
 
 
 def main():
     """
     Função principal que orquestra a execução do script.
     """
-    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.11.0[/bold cyan]"))
+    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.12.0[/bold cyan]"))
     
     # 1. Carregar Configurações
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -300,6 +363,9 @@ def main():
     # 6. Encontrar Base e Atualizar Excel
     caminho_base = encontrar_arquivo_base_excel(config)
     atualizar_planilha_excel(df_dados, config, caminho_base)
+
+    # 7. Atualizar Base Consolidada
+    atualizar_base_consolidada(df_dados, config)
 
     console.print("\n[bold cyan]Automação finalizada.[/bold cyan]")
 
