@@ -1,9 +1,11 @@
 # ==============================================================================
-# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.12.0
+# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.12.1
 #
 # NOTAS DA VERSÃO:
-# - Adicionada a funcionalidade de uma planilha com a base consolidada que é atualizada
-#   sem alterar seu nome, apenas salvando sobre si mesma.
+# - Conserta o problema de deletar outras planilhas que estejam na pasta Pública
+# do Gerencie Carteira. Agora só deleta arquivos que comecem com "Gerencie".
+# - Refeita a lógica do executável para funcionar tanto como script quanto
+# como .exe empacotado.
 # ==============================================================================
 
 import win32com.client
@@ -25,27 +27,44 @@ from rich.traceback import Traceback
 # Inicializa o console globalmente para ser usado por qualquer função
 console = Console()
 
-def configurar_logging(config):
-    """Configura o sistema de logging para salvar em arquivo e exibir no console."""
+def configurar_logging(config, base_path):
+    """
+    Configura o sistema de logging de forma robusta.
+    Cria a pasta 'log' relativa ao caminho base e trata possíveis erros de permissão.
+    """
     FORMATO_LOG = "%(asctime)s - %(levelname)s - %(message)s"
+    log_file = None  # Inicializa a variável para a mensagem de erro
+    
     try:
-        caminho_pasta_logs = config.get('Paths', 'pasta_logs')
-    except (configparser.NoSectionError, configparser.NoOptionError):
-        caminho_pasta_logs = None
-    if caminho_pasta_logs:
+        # Usa o base_path para construir o caminho do diretório de log
+        caminho_pasta_logs = os.path.join(base_path, 'log')
+        
+        # Garante que a pasta exista
         os.makedirs(caminho_pasta_logs, exist_ok=True)
+        
         log_file = os.path.join(caminho_pasta_logs, 'automacao_gerencie_carteira.log')
-    else:
-        script_path = os.path.dirname(os.path.realpath(__file__))
-        log_file = os.path.join(script_path, 'automacao_gerencie_carteira.log')
-    logging.basicConfig(
-        level="INFO",
-        format=FORMATO_LOG,
-        datefmt="[%Y_%m_%d %H:%M:%S]",
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8')
-        ]
-    )
+        
+        # Configura o manipulador de arquivo para o logging
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        
+        logging.basicConfig(
+            level="INFO",
+            format=FORMATO_LOG,
+            datefmt="[%Y_%m_%d %H:%M:%S]",
+            handlers=[file_handler]
+        )
+
+    except (OSError, PermissionError) as e:
+        # Se ocorrer um erro de permissão ou outro erro de sistema operacional
+        # ao criar a pasta ou o arquivo de log.
+        console.print(f"[bold red]ERRO CRÍTICO AO CONFIGURAR LOGS:[/bold red]")
+        if log_file:
+            console.print(f"Não foi possível criar ou escrever no arquivo de log em: [cyan]{log_file}[/cyan]")
+        else:
+            console.print("Não foi possível criar a pasta de logs.")
+        
+        console.print(f"Erro do sistema: {e}")
+        sys.exit("Verifique as permissões da pasta e tente novamente. Pressione ENTER para sair.")
 
 def carregar_configuracoes(caminho_config_file):
     """
@@ -228,12 +247,12 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
         
         # 1. Deletar cópia antiga (.xlsx) na pasta de destino
         console.print(f"Verificando arquivos antigos na pasta de cópia: [cyan]{pasta_copia}[/cyan]")
-        arquivos_antigos = glob.glob(os.path.join(pasta_copia, "*.xlsx"))
+        arquivos_antigos = glob.glob(os.path.join(pasta_copia, "Gerencie*.xlsx"))
         for f in arquivos_antigos:
             try:
                 os.remove(f)
                 console.print(f"Arquivo antigo removido: [yellow]{os.path.basename(f)}[/yellow]")
-            except OSError:
+            except OSError as e:
                 traceos = Traceback(show_locals=True, word_wrap=True, width=120)
                 console.print(f"[bold red]ERRO ao remover o arquivo antigo '{f}': {e}[/bold red]")
                 console.print(traceos)
@@ -330,16 +349,24 @@ def main():
     """
     Função principal que orquestra a execução do script.
     """
-    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.12.0[/bold cyan]"))
+    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.12.1[/bold cyan]"))
     
-    # 1. Carregar Configurações
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    root_dir = os.path.dirname(script_dir)
-    config_file = os.path.join(root_dir, 'config', 'config.ini')
+    # Lógica corrigida para determinar o caminho raiz do projeto
+    if getattr(sys, 'frozen', False):
+        # Se estiver rodando como um executável empacotado (standalone)
+        # sys.executable é o caminho para o próprio .exe
+        base_path = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        # Se estiver rodando como um script normal
+        # Sobe dois níveis para chegar na raiz do projeto (onde estão 'src', 'config', etc.)
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1. Carregar Configurações - USANDO A VARIÁVEL CORRETA 'base_path'
+    config_file = os.path.join(base_path, 'config', 'config.ini')
     config = carregar_configuracoes(config_file)
 
-    # 2. Configurar Logging
-    configurar_logging(config) 
+    # 2. Configurar Logging - PASSANDO O 'base_path' NECESSÁRIO
+    configurar_logging(config, base_path) 
 
     # 3. Buscar E-mails
     emails = buscar_emails_novos(config)
