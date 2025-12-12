@@ -1,11 +1,8 @@
 # ==============================================================================
-# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.12.1
+# SCRIPT DE AUTOMAÇÃO GERENCIE CARTEIRA v2.13.0
 #
 # NOTAS DA VERSÃO:
-# - Conserta o problema de deletar outras planilhas que estejam na pasta Pública
-# do Gerencie Carteira. Agora só deleta arquivos que comecem com "Gerencie".
-# - Refeita a lógica do executável para funcionar tanto como script quanto
-# como .exe empacotado.
+# - Faz todas as planilhas serem salvas como .XLSM para manter macros.
 # ==============================================================================
 
 import win32com.client
@@ -196,12 +193,13 @@ def apresentar_dados_no_console(df):
 
 def atualizar_planilha_excel(df, config, caminho_base_excel):
     """
-    Executa a manipulação do Excel: abre a base, insere dados, salva o novo arquivo,
-    e cria uma cópia .xlsx sem macros em outra pasta, substituindo a antiga.
+    Executa a manipulação do Excel: abre a base, insere dados, salva o novo arquivo
+    na pasta pessoal (.xlsm) e salva uma CÓPIA na pasta pública TAMBÉM COMO .xlsm
+    para preservar as macros.
     """
     nome_planilha = config['Excel']['planilha_dados']
     col_verificacao = config['Excel']['coluna_verificacao']
-    executavel = config.get('Paths', 'executavel_direciona', fallback=None) # Usar get com fallback
+    executavel = config.get('Paths', 'executavel_direciona', fallback=None)
     pasta_diario = config['Paths']['pasta_diario_excel']
     pasta_copia = config['Paths']['pasta_copia_excel']
 
@@ -233,7 +231,7 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
         if any(isinstance(v, str) and v.startswith('#') for v in dados_verificados):
             erro_encontrado = True
         
-        # Salva o arquivo principal com macros (.xlsm)
+        # Salva o arquivo principal na pasta pessoal com macros (.xlsm)
         wb.save(caminho_novo_excel)
         
         if erro_encontrado:
@@ -243,11 +241,13 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
         else:
             console.print(Panel.fit(f"Arquivo principal salvo com sucesso em:\n[green]{caminho_novo_excel}[/green]", title="Sucesso", border_style="green"))
 
-        # --- INÍCIO DA FUNCIONALIDADE TEMP ---
+        # --- INÍCIO DA ATUALIZAÇÃO PARA PASTA PÚBLICA (.XLSM) ---
         
-        # 1. Deletar cópia antiga (.xlsx) na pasta de destino
-        console.print(f"Verificando arquivos antigos na pasta de cópia: [cyan]{pasta_copia}[/cyan]")
-        arquivos_antigos = glob.glob(os.path.join(pasta_copia, "Gerencie*.xlsx"))
+        # 1. Deletar arquivos antigos (tanto .xlsx quanto .xlsm para limpar tudo)
+        console.print(f"Verificando arquivos antigos na pasta pública: [cyan]{pasta_copia}[/cyan]")
+        # Busca qualquer coisa que comece com "Gerencie" e seja planilha Excel
+        arquivos_antigos = glob.glob(os.path.join(pasta_copia, "Gerencie*.xls*"))
+        
         for f in arquivos_antigos:
             try:
                 os.remove(f)
@@ -255,20 +255,18 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
             except OSError as e:
                 traceos = Traceback(show_locals=True, word_wrap=True, width=120)
                 console.print(f"[bold red]ERRO ao remover o arquivo antigo '{f}': {e}[/bold red]")
-                console.print(traceos)
                 logging.error(f"ERRO ao remover o arquivo antigo '{f}': {e}")
 
+        # 2. Criar o nome e caminho para a nova cópia .XLSM (MANTENDO MACROS)
+        nome_copia_xlsm = f"Gerencie Carteira_{data_nome}.xlsm"
+        caminho_copia_xlsm = os.path.join(pasta_copia, nome_copia_xlsm)
 
-        # 2. Criar o nome e caminho para a nova cópia .xlsx
-        nome_copia_xlsx = f"Gerencie Carteira_{data_nome}.xlsx"
-        caminho_copia_xlsx = os.path.join(pasta_copia, nome_copia_xlsx)
-
-        # 3. Salvar a cópia sem macros (.xlsx)
-        # O xlwings remove as macros automaticamente ao salvar de .xlsm para .xlsx
-        wb.save(caminho_copia_xlsx)
-        console.print(Panel.fit(f"Cópia sem macros salva com sucesso em:\n[green]{caminho_copia_xlsx}[/green]", title="Cópia Gerada", border_style="green"))
+        # 3. Salvar a cópia COM macros (.xlsm)
+        # Como o arquivo original (wb) já é xlsm, salvar com extensão xlsm mantém o VBA
+        wb.save(caminho_copia_xlsm)
+        console.print(Panel.fit(f"Cópia COM MACROS salva com sucesso em:\n[green]{caminho_copia_xlsm}[/green]", title="Cópia Pública Gerada", border_style="green"))
         
-        # --- FIM DA FUNCIONALIDADE TEMP ---
+        # --- FIM DA ATUALIZAÇÃO ---
 
     except Exception:
         trace = Traceback(show_locals=True, word_wrap=True, width=120)
@@ -283,14 +281,18 @@ def atualizar_planilha_excel(df, config, caminho_base_excel):
 
 def atualizar_base_consolidada(df, config):
     """
-    Executa o mesmo processo de atualização na base consolidada, mas
-    apenas salva o arquivo existente, sem alterar seu nome.
+    Executa o mesmo processo de atualização na base consolidada.
+    IMPORTANTE: Para que a macro funcione aqui, o arquivo original nesta pasta
+    JÁ DEVE SER UM ARQUIVO .XLSM contendo a macro. O script apenas abre, insere dados e salva.
     """
     pasta_base = config['BaseConsolidada']['pasta_base_consolidada']
     nome_arquivo = config['BaseConsolidada']['nome_arquivo_consolidado']
     caminho_base_consolidada = os.path.join(pasta_base, nome_arquivo)
 
-    # Usa as mesmas configurações de planilha e coluna de verificação do processo principal
+    # Verifica se o usuário configurou um arquivo .xlsx, o que mataria a macro ao salvar
+    if nome_arquivo.lower().endswith('.xlsx'):
+        console.print(Panel.fit(f"[bold red]ALERTA:[/bold red] O arquivo configurado é .xlsx:\n{nome_arquivo}\nPara manter a macro, converta este arquivo manualmente para [bold].xlsm[/bold] e atualize o 'config.ini'.", title="Aviso de Macro", border_style="red"))
+
     nome_planilha = config['Excel']['planilha_dados']
     col_verificacao = config['Excel']['coluna_verificacao']
     
@@ -316,7 +318,6 @@ def atualizar_base_consolidada(df, config):
         console.print(f"Inserindo [bold green]{len(df)}[/bold green] novas linhas na aba [cyan]'{nome_planilha}'[/cyan] a partir da linha {primeira_linha_vazia}.")
         ws.range(f'A{primeira_linha_vazia}').options(pd.DataFrame, index=False, header=False).value = df
         
-        # Lógica de verificação de erro, igual à função principal
         erro_encontrado = False
         ult_linha_nova = primeira_linha_vazia + len(df) - 1
         dados_verificados = ws.range(f'{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}').options(err_to_str=True).value
@@ -324,11 +325,11 @@ def atualizar_base_consolidada(df, config):
         if any(isinstance(v, str) and v.startswith('#') for v in dados_verificados):
             erro_encontrado = True
         
-        # --- PONTO CHAVE: SALVAR O ARQUIVO SOBRE ELE MESMO ---
+        # Salva o arquivo sobre ele mesmo. Se for .xlsm, mantém macros.
         wb.save() 
         
         if erro_encontrado:
-            console.print(Panel.fit(f"Base consolidada atualizada, mas com [bold]PENDÊNCIAS[/bold] (erros de fórmula encontrados).\nArquivo: [yellow]{caminho_base_consolidada}[/yellow]", title="Ação Necessária", border_style="yellow"))
+            console.print(Panel.fit(f"Base consolidada atualizada, mas com [bold]PENDÊNCIAS[/bold].\nArquivo: [yellow]{caminho_base_consolidada}[/yellow]", title="Ação Necessária", border_style="yellow"))
         else:
             console.print(Panel.fit(f"Base consolidada atualizada com sucesso!\nArquivo: [green]{caminho_base_consolidada}[/green]", title="Sucesso", border_style="green"))
 
@@ -349,26 +350,18 @@ def main():
     """
     Função principal que orquestra a execução do script.
     """
-    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.12.1[/bold cyan]"))
+    console.print(Panel.fit("[bold cyan]Iniciando Automação 'Gerencie Carteira' v2.13.0[/bold cyan]"))
     
-    # Lógica corrigida para determinar o caminho raiz do projeto
     if getattr(sys, 'frozen', False):
-        # Se estiver rodando como um executável empacotado (standalone)
-        # sys.executable é o caminho para o próprio .exe
         base_path = os.path.dirname(os.path.abspath(sys.executable))
     else:
-        # Se estiver rodando como um script normal
-        # Sobe dois níveis para chegar na raiz do projeto (onde estão 'src', 'config', etc.)
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
-    # 1. Carregar Configurações - USANDO A VARIÁVEL CORRETA 'base_path'
     config_file = os.path.join(base_path, 'config', 'config.ini')
     config = carregar_configuracoes(config_file)
 
-    # 2. Configurar Logging - PASSANDO O 'base_path' NECESSÁRIO
     configurar_logging(config, base_path) 
 
-    # 3. Buscar E-mails
     emails = buscar_emails_novos(config)
     if not emails:
         console.print("[bold yellow]Nenhum e-mail não lido encontrado com o assunto especificado.[/bold yellow]")
@@ -377,21 +370,17 @@ def main():
 
     console.print(f"Encontrados [bold green]{len(emails)}[/bold green] e-mail(s) para processar.")
     
-    # 4. Extrair Dados dos Anexos
     df_dados = extrair_dados_dos_anexos(emails, config)
     if df_dados.empty:
         console.print("[bold yellow]Nenhum dado válido foi extraído dos anexos.[/bold yellow]")
         logging.warning("Nenhum dado válido foi extraído dos anexos.")
         return
         
-    # 5. Apresentar Dados no Console
     apresentar_dados_no_console(df_dados)
     
-    # 6. Encontrar Base e Atualizar Excel
     caminho_base = encontrar_arquivo_base_excel(config)
     atualizar_planilha_excel(df_dados, config, caminho_base)
 
-    # 7. Atualizar Base Consolidada
     atualizar_base_consolidada(df_dados, config)
 
     console.print("\n[bold cyan]Automação finalizada.[/bold cyan]")
@@ -401,11 +390,9 @@ if __name__ == "__main__":
     try:
         main()
     except SystemExit as e:
-        # Captura saídas limpas (como "Pressione ENTER para sair") para evitar Traceback
         if e.code is not None:
              console.print(f"\n[yellow]Script encerrado pelo usuário ou por erro previsto.[/yellow]")
     except Exception:
-        # Captura qualquer outra exceção inesperada
         console.print("\n[on red]UM ERRO GLOBAL INESPERADO OCORREU:[/on red]")
         console.print(Traceback(show_locals=True, word_wrap=True, width=120))
         logging.critical("Um erro global inesperado ocorreu", exc_info=True)

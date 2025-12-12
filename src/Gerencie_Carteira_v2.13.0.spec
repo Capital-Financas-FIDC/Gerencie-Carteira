@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['Gerencie_Carteira_v2.12.1.py'],
+    ['Gerencie_Carteira_v2.13.0.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Gerencie_Carteira_v2.12.1',
+    name='Gerencie_Carteira_v2.13.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['app.ico'],
 )
