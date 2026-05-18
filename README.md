@@ -62,19 +62,24 @@ npm run dev                                         # abre janela Electron
 
 ## Build
 
+**Forma recomendada — um comando, na raiz do repo:**
+
+```powershell
+./build-app.ps1
+```
+
+Faz tudo (core Python -> TS/Vite -> electron-builder) e entrega o app pronto
+em **`./Aplicativo/`** (fora de `build/`, facil de achar). Para abrir: clique
+duplo em **`Gerencie Carteira.cmd`** na raiz, ou rode direto
+`Aplicativo\Gerencie Carteira.exe`. `Aplicativo/` e regeneravel e nao versionado.
+
+**Etapas manuais (equivalente, se precisar depurar):**
+
 ```bash
-# 1. Compilar o core Python (PyInstaller)
-cd backend
-./build_core.ps1                                    # -> app/resources/gerencie_carteira_core.exe
-
-# 2. Compilar o app Electron
-cd app
-npm run build                                       # transpila TS + bundle Vite
-
-# 3. Gerar distribucao
-npm run dist            # installer NSIS (*)
-npm run dist:dir        # pasta win-unpacked/ (portable manual)
-npm run dist:portable   # zip portable autocontido
+cd backend && ./build_core.ps1      # core -> app/resources/gerencie_carteira_core.exe
+cd app && npm run build             # transpila TS + bundle Vite
+npm run dist:dir                    # pasta win-unpacked/ (a .ps1 reloca para ../Aplicativo)
+npm run dist                        # installer NSIS (*) — opcional
 ```
 
 **(*) Nota sobre NSIS installer em Windows:** O electron-builder extrai cache `winCodeSign` que contem 2 symlinks de dylibs macOS irrelevantes para Windows. Se o usuario nao tiver privilegio para criar symlinks (comum em maquinas corporativas), a etapa final de gerar o .exe NSIS falha mas o `win-unpacked/` e gerado corretamente. Alternativas:

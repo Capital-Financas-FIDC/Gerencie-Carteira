@@ -3,11 +3,16 @@ node_modules/
 app/dist/
 app/dist-electron/
 app/.vite/
+# tsc -b emite .js/.tsbuildinfo ao lado dos fontes .ts (Vite faz o bundle real)
+/app/**/*.js
+/app/tsconfig.tsbuildinfo
 npm-debug.log*
 yarn-error.log*
 
 # ── Build outputs ──────────────────────────────────────────────────────
 build/
+# App empacotado entregue por build-app.ps1 — artefato grande, regeneravel
+/Aplicativo/
 # Core compilado pelo build_core.ps1 — artefato regeneravel, nao versionar
 app/resources/gerencie_carteira_core.exe
 *.spec

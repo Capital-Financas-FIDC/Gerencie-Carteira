@@ -15,7 +15,8 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "noEmit": true
   },
   "include": ["src", "electron", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "dist-electron", "resources"]
