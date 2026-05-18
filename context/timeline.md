@@ -22,6 +22,7 @@
 - PATCH v3.0.1: base resolvida ANTES de marcar e-mails lidos (corrige perda de dados); recalculo forcado do Excel antes da checagem `#N/D`
 - Inicializacao da estrutura de contexto (CONTEXT_SPEC, metaspec, index, timeline); `CLAUDE.md` passa a delegar para `AGENTS.md`
 - Consolidacao em repo unico (fim da arvore `versions/`) + governanca SemVer: fonte unica `app/package.json`, entrypoint renomeado para nome estavel `gerencie_carteira.py`, versao propagada para UI (IPC) e Python (env)
+- `git init` + enxerto sobre o historico legacy: v3.0.1 vira filho de v2.13.0 (linear, sem perda de commits/tags) no remote da org `Capital-Financas-FIDC/Gerencie-Carteira`
 
 ## Metricas Snapshot (2026-05-18)
 
@@ -29,8 +30,8 @@
 |---------|-------|
 | Versao atual | v3.0.1 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~30 (v1.0.0 → v3.0.1, repos legados) |
+| Releases historicas | ~30 (v1.0.0 → v3.0.1, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~3 suites pytest) |
 | Testes UI | inexistentes |
-| Historico git | nao disponivel (versionamento manual) |
+| Historico git | disponivel — remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main` |

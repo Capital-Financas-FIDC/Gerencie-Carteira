@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 1.1 | Atualizado: 2026-05-18
+> Contexto para agentes AI. Versao: 1.2 | Atualizado: 2026-05-18
 
 ## IDENTIDADE
 
@@ -101,7 +101,7 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 
 ## ESTADO ATUAL (v3.0.1 — 18/05/2026)
 
-Repo unico com versionamento SemVer (fonte unica `app/package.json`). Release v3.0.1 em validacao inicial.
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), versionamento SemVer com fonte unica `app/package.json`. v3.0.1 enxertado linearmente apos o historico legacy (`v2.13.0 → v3.0.1`, tags preservadas). Release em validacao inicial.
 
 **Pronto:**
 - Backend Python v3 com pipeline JSON Lines funcional (smoke OK)
@@ -120,5 +120,4 @@ Repo unico com versionamento SemVer (fonte unica `app/package.json`). Release v3
 - Sem testes de UI (Vitest planejado) nem de integracao IPC
 - Smoke E2E com Outlook real ainda nao executado
 - `atualizar_planilha_excel()` com ~6 responsabilidades, sem refatorar; type hints incompletos no pipeline
-- Sem Git na raiz — `git init` pendente (release/rollback SemVer dependem de tags `vX.Y.Z`)
 - Installer NSIS gerado mas nao validado em maquina limpa
