@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-electron/
+../build/dist-electron/
+resources/gerencie_carteira_core.exe
+*.local

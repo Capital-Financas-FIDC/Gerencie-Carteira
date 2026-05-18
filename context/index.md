@@ -1,0 +1,62 @@
+# Context Index — Gerencie Carteira
+> Mapa de artefatos. Atualizado: 2026-05-18 (v1.1)
+
+## Navegacao Rapida
+
+| Artefato | Caminho | Descricao |
+|----------|---------|-----------|
+| CONTEXT_SPEC | `context/CONTEXT_SPEC.md` | Spec canonico imutavel dos docs de contexto |
+| MetaSpec | `context/metaspec.md` | Identidade, stack, arquitetura, regras, estado atual |
+| Index | `context/index.md` | Este mapa de navegacao e arquivos criticos |
+| Timeline | `context/timeline.md` | Historia evolutiva por fases |
+| AGENTS.md | `AGENTS.md` | Sistema operacional do repo: comandos, arquitetura, versionamento SemVer (CLAUDE.md delega para ele) |
+
+## Artefatos Ativos
+
+### Analises — context/analysis/
+Nenhum artefato. (Historico em `context/analysis/old/`.)
+
+### Walkthroughs — context/walkthroughs/
+Nenhum artefato.
+
+### Plans — plans/
+Nenhum artefato. (Historico em `plans/old/`.)
+
+## Arquivos Criticos
+
+### Backend core
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `backend/src/gerencie_carteira.py` | Entrypoint do pipeline (nome estavel, sem versao); `main()` define a invariante de ordem |
+| `backend/src/log_emitter.py` | Contrato JSON Lines (`emit`, `emit_result`) — unica saida sancionada |
+| `backend/src/directory_bootstrap.py` | Workspace idempotente, verificacao de share, deteccao de pasta legada |
+
+### Electron / UI
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `app/electron/main.ts` | spawn do core, readline IPC, dialog da cascata, whitelist de `shell.openPath` |
+| `app/electron/preload.ts` | contextBridge — superficie `window.electronAPI` |
+| `app/src/hooks/useScriptRunner.ts` | Reducer de estado; deteccao de exit 4 e auto-rerun |
+| `app/src/App.tsx` | Composicao da UI |
+
+### Config / Build
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `config/config.ini` | Paths (`%USERPROFILE%`), aba/coluna do Excel, assunto do e-mail |
+| `app/package.json` | Scripts dev/build/dist, config electron-builder (NSIS) |
+| `backend/build_core.ps1` | PyInstaller → `app/resources/gerencie_carteira_core.exe` |
+
+## Testes
+
+| Camada | Diretorio | Status |
+|--------|-----------|--------|
+| Backend (unit) | `backend/tests/` | passing (log_emitter, directory_bootstrap, cascata_base) |
+| UI / IPC | — | inexistente (Vitest planejado) |
+
+## Documentacao Tecnica
+
+| Arquivo | Descricao |
+|---------|-----------|
+| `README.md` | Layout do projeto, comandos dev/build, caveat NSIS, protocolo JSON Lines |
+| `AGENTS.md` | Guia operacional para agentes + governanca de versionamento SemVer |
+| `CLAUDE.md` | Stub que delega integralmente para `AGENTS.md` |

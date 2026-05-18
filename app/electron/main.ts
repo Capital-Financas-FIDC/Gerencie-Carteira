@@ -1,0 +1,279 @@
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createInterface } from "node:readline";
+import path from "node:path";
+import fs from "node:fs";
+
+const BASE_FILENAME_PATTERN = /^Gerencie Carteira_\d{4}_\d{2}_\d{2}\.xlsm$/;
+
+// --- Globals ---
+let mainWindow: BrowserWindow | null = null;
+let activeChild: ChildProcess | null = null;
+let runStartMs = 0;
+let lastSpreadsheetPath: string | null = null;
+let allowedPrefixes: string[] = [];
+
+// --- Helpers ---
+const isDev = !app.isPackaged;
+
+function resolvePythonInvocation(): { cmd: string; args: string[]; cwd: string } {
+  if (isDev) {
+    const backendDir = path.resolve(__dirname, "../../backend/src");
+    return {
+      cmd: "python",
+      args: [path.join(backendDir, "gerencie_carteira.py")],
+      cwd: backendDir,
+    };
+  }
+  const exePath = path.join(process.resourcesPath, "gerencie_carteira_core.exe");
+  return { cmd: exePath, args: [], cwd: path.dirname(exePath) };
+}
+
+function resolveConfigPath(): string {
+  if (isDev) {
+    return path.resolve(__dirname, "../../config/config.ini");
+  }
+  return path.join(process.resourcesPath, "config", "config.ini");
+}
+
+function resolveLocalPlanilhasDir(): string {
+  // Le do config; fallback para %USERPROFILE%\Documents\Gerencie_Carteira\planilhas
+  try {
+    const cfg = fs.readFileSync(resolveConfigPath(), "utf-8");
+    const m = cfg.match(/^pasta_diario_excel\s*=\s*(.+)$/m);
+    if (m) {
+      return m[1].replace(/%USERPROFILE%/gi, process.env.USERPROFILE || "").trim();
+    }
+  } catch {
+    // ignore
+  }
+  return path.join(process.env.USERPROFILE || "", "Documents", "Gerencie_Carteira", "planilhas");
+}
+
+function yesterdayDateStamp(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}_${m}_${day}`;
+}
+
+function loadAllowedPathPrefixes(): void {
+  // Whitelist simples para shell.openPath — apenas paths sob workspace do usuario
+  // ou sob os diretorios declarados no config.ini
+  const userWorkspace = path.join(
+    process.env.USERPROFILE || "",
+    "Documents",
+    "Gerencie_Carteira"
+  );
+  allowedPrefixes = [userWorkspace];
+
+  try {
+    const cfg = fs.readFileSync(resolveConfigPath(), "utf-8");
+    for (const line of cfg.split(/\r?\n/)) {
+      const m = line.match(/^pasta_(diario_excel|copia_excel|destino_html|logs)\s*=\s*(.+)$/);
+      if (m) {
+        const expanded = m[2].replace(/%USERPROFILE%/gi, process.env.USERPROFILE || "").trim();
+        if (expanded) allowedPrefixes.push(expanded);
+      }
+    }
+  } catch {
+    // config ausente em dev — ok, whitelist ja tem o workspace default
+  }
+}
+
+function isPathAllowed(target: string): boolean {
+  const abs = path.resolve(target);
+  return allowedPrefixes.some((prefix) => abs.toLowerCase().startsWith(path.resolve(prefix).toLowerCase()));
+}
+
+// --- Window ---
+function createMainWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 900,
+    height: 640,
+    minWidth: 640,
+    minHeight: 480,
+    title: "Gerencie Carteira",
+    backgroundColor: "#111827",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  mainWindow.setMenuBarVisibility(false);
+
+  if (isDev && process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
+}
+
+// --- IPC: run script ---
+ipcMain.handle("script:run", async () => {
+  if (activeChild) {
+    return { ok: false, reason: "already_running" };
+  }
+  if (!mainWindow) return { ok: false, reason: "no_window" };
+
+  const { cmd, args, cwd } = resolvePythonInvocation();
+  runStartMs = Date.now();
+  lastSpreadsheetPath = null;
+
+  try {
+    activeChild = spawn(cmd, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8",
+        PYTHONUNBUFFERED: "1",
+        // Fonte unica da versao: app/package.json (via app.getVersion()).
+        APP_VERSION: app.getVersion(),
+      },
+    });
+  } catch (err) {
+    mainWindow.webContents.send("script:log", {
+      level: "error",
+      ts: new Date().toISOString(),
+      msg: `Falha ao iniciar processo: ${(err as Error).message}`,
+      step: "spawn.error",
+    });
+    return { ok: false, reason: "spawn_failed" };
+  }
+
+  const rl = createInterface({ input: activeChild.stdout! });
+  rl.on("line", (line) => {
+    if (!line.trim() || !mainWindow) return;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line);
+      if (typeof event !== "object" || event === null) throw new Error("not-object");
+    } catch {
+      event = {
+        level: "warning",
+        ts: new Date().toISOString(),
+        msg: line,
+        step: "stdout.unparsed",
+      };
+    }
+
+    // Extrai path da planilha do evento terminal
+    const data = (event as any).data;
+    if (data && data.result && typeof data.result.spreadsheet_path === "string") {
+      lastSpreadsheetPath = data.result.spreadsheet_path;
+    }
+
+    mainWindow.webContents.send("script:log", event);
+  });
+
+  activeChild.stderr!.on("data", (chunk: Buffer) => {
+    if (!mainWindow) return;
+    const text = chunk.toString("utf-8");
+    mainWindow.webContents.send("script:log", {
+      level: "error",
+      ts: new Date().toISOString(),
+      msg: text.trim(),
+      step: "stderr",
+    });
+  });
+
+  activeChild.on("close", (code) => {
+    const durationMs = Date.now() - runStartMs;
+    if (mainWindow) {
+      mainWindow.webContents.send("script:done", {
+        exitCode: code ?? -1,
+        spreadsheetPath: lastSpreadsheetPath,
+        durationMs,
+      });
+    }
+    activeChild = null;
+  });
+
+  activeChild.on("error", (err) => {
+    if (mainWindow) {
+      mainWindow.webContents.send("script:log", {
+        level: "error",
+        ts: new Date().toISOString(),
+        msg: `Erro no processo: ${err.message}`,
+        step: "process.error",
+      });
+    }
+  });
+
+  return { ok: true };
+});
+
+// --- IPC: versao do app (fonte unica: package.json) ---
+ipcMain.handle("app:version", () => app.getVersion());
+
+// --- IPC: cancel ---
+ipcMain.handle("script:cancel", async () => {
+  if (!activeChild) return { ok: false, reason: "not_running" };
+  activeChild.kill();
+  return { ok: true };
+});
+
+// --- IPC: abrir arquivo (com whitelist) ---
+ipcMain.handle("file:open", async (_evt, target: string) => {
+  if (typeof target !== "string" || !target) return { ok: false, reason: "invalid_path" };
+  if (!isPathAllowed(target)) return { ok: false, reason: "path_not_allowed" };
+  if (!fs.existsSync(target)) return { ok: false, reason: "file_not_found" };
+  const err = await shell.openPath(target);
+  return err ? { ok: false, reason: err } : { ok: true };
+});
+
+// --- IPC: dialog para selecionar planilha base manualmente ---
+ipcMain.handle("dialog:choose-base", async () => {
+  if (!mainWindow) return { ok: false, reason: "no_window" };
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Selecione a planilha base (.xlsm)",
+    buttonLabel: "Usar como base",
+    filters: [{ name: "Excel macro-habilitado", extensions: ["xlsm"] }],
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, reason: "canceled" };
+  }
+
+  const origem = result.filePaths[0];
+  const pastaLocal = resolveLocalPlanilhasDir();
+
+  try {
+    fs.mkdirSync(pastaLocal, { recursive: true });
+    const origName = path.basename(origem);
+    // Normaliza nome: se nao bate o pattern, usa data de ontem para agir como base do dia de hoje
+    const destName = BASE_FILENAME_PATTERN.test(origName)
+      ? origName
+      : `Gerencie Carteira_${yesterdayDateStamp()}.xlsm`;
+    const destino = path.join(pastaLocal, destName);
+    fs.copyFileSync(origem, destino);
+    return { ok: true, destino, renamed: destName !== origName, origem };
+  } catch (e) {
+    return { ok: false, reason: `copy_failed: ${(e as Error).message}` };
+  }
+});
+
+// --- App lifecycle ---
+app.whenReady().then(() => {
+  loadAllowedPathPrefixes();
+  createMainWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  });
+});
+
+app.on("window-all-closed", () => {
+  if (activeChild) activeChild.kill();
+  if (process.platform !== "darwin") app.quit();
+});
