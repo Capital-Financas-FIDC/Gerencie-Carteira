@@ -278,6 +278,84 @@ body {
 }
 .btn-secondary:hover:not(:disabled) { background: var(--bg-sunken); }
 
+/* ===================== Gerentes Orfaos (modal) ===================== */
+
+.orfaos-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 24px;
+}
+
+.orfaos-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.orfaos-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.orfaos-header h2 { margin: 0 0 6px; font-size: 16px; color: var(--text); }
+.orfaos-header p { margin: 0; font-size: 13px; color: var(--text-faint); }
+
+.orfaos-list {
+  overflow-y: auto;
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.orfaos-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.orfaos-info { display: flex; flex-direction: column; min-width: 0; }
+.orfaos-cnpj { font-size: 13px; font-weight: 600; color: var(--text); }
+.orfaos-razao {
+  font-size: 12px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.orfaos-input {
+  flex-shrink: 0;
+  width: 220px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.orfaos-input:focus { outline: none; border-color: var(--accent); }
+
+.orfaos-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
 /* ===================== Scrollbar ===================== */
 
 .log-viewer-body::-webkit-scrollbar { width: 10px; }

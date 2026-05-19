@@ -24,6 +24,8 @@ const api = {
   runScript: (): Promise<IpcResult> => ipcRenderer.invoke("script:run"),
   cancelScript: (): Promise<IpcResult> => ipcRenderer.invoke("script:cancel"),
   openFile: (path: string): Promise<IpcResult> => ipcRenderer.invoke("file:open", path),
+  provideGerentesInput: (mapping: Record<string, string>): Promise<IpcResult> =>
+    ipcRenderer.invoke("script:provideInput", { mapping }),
   chooseBaseSpreadsheet: (): Promise<IpcResult<{ destino?: string; origem?: string; renamed?: boolean }>> =>
     ipcRenderer.invoke("dialog:choose-base"),
 

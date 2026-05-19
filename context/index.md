@@ -45,6 +45,8 @@ Nenhum artefato. (Historico em `plans/old/`.)
 | `config/config.ini` | Paths (`%USERPROFILE%`), aba/coluna do Excel, assunto do e-mail |
 | `app/package.json` | Scripts dev/build/dist, config electron-builder (NSIS) |
 | `backend/build_core.ps1` | PyInstaller → `app/resources/gerencie_carteira_core.exe` |
+| `build-app.ps1` | Build completo (raiz) → entrega o app em `./Aplicativo/` |
+| `Gerencie Carteira.cmd` | Atalho de um clique p/ `Aplicativo\Gerencie Carteira.exe` |
 
 ## Testes
 

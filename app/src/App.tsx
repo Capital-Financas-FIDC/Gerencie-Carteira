@@ -4,10 +4,21 @@ import { RunButton } from "./components/RunButton";
 import { StatusBadge } from "./components/StatusBadge";
 import { LogViewer } from "./components/LogViewer";
 import { ActionBar } from "./components/ActionBar";
+import { GerentesOrfaosForm } from "./components/GerentesOrfaosForm";
 
 export default function App() {
-  const { status, logs, currentStep, spreadsheetPath, durationMs, run, clear, openSpreadsheet } =
-    useScriptRunner();
+  const {
+    status,
+    logs,
+    currentStep,
+    spreadsheetPath,
+    durationMs,
+    pendingInput,
+    run,
+    clear,
+    openSpreadsheet,
+    submitGerentes,
+  } = useScriptRunner();
 
   // Versao exibida vem da fonte unica (app/package.json via IPC), nunca hardcoded.
   const [version, setVersion] = useState("");
@@ -45,6 +56,10 @@ export default function App() {
         onClear={clear}
         disabled={isRunning}
       />
+
+      {pendingInput && (
+        <GerentesOrfaosForm orfaos={pendingInput.orfaos} onSubmit={submitGerentes} />
+      )}
     </div>
   );
 }

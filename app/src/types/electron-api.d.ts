@@ -7,6 +7,7 @@ export interface ElectronAPI {
   runScript: () => Promise<IpcResult>;
   cancelScript: () => Promise<IpcResult>;
   openFile: (path: string) => Promise<IpcResult>;
+  provideGerentesInput: (mapping: Record<string, string>) => Promise<IpcResult>;
   chooseBaseSpreadsheet: () => Promise<
     IpcResult<{ destino?: string; origem?: string; renamed?: boolean }>
   >;

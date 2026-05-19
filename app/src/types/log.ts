@@ -16,3 +16,12 @@ export interface ScriptDone {
 }
 
 export type RunStatus = "idle" | "running" | "success" | "warning" | "error";
+
+export interface OrfaoEntry {
+  cnpj: string;
+  razao_social: string;
+}
+
+export interface PendingGerentesInput {
+  orfaos: OrfaoEntry[];
+}

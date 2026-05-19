@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { LogEvent, RunStatus, ScriptDone } from "../types/log";
+import type {
+  LogEvent,
+  OrfaoEntry,
+  PendingGerentesInput,
+  RunStatus,
+  ScriptDone,
+} from "../types/log";
+
+const STEP_INPUT_GERENTES = "input.gerentes.needed";
 
 const EXIT_BASE_NEEDS_USER = 4;
 
@@ -9,6 +17,7 @@ interface State {
   currentStep?: string;
   spreadsheetPath: string | null;
   durationMs?: number;
+  pendingInput: PendingGerentesInput | null;
 }
 
 type Action =
@@ -16,13 +25,22 @@ type Action =
   | { type: "log"; ev: LogEvent }
   | { type: "done"; result: ScriptDone }
   | { type: "system"; ev: LogEvent }
+  | { type: "input-resolved" }
   | { type: "clear" };
 
 const initialState: State = {
   status: "idle",
   logs: [],
   spreadsheetPath: null,
+  pendingInput: null,
 };
+
+function extractPendingInput(ev: LogEvent): PendingGerentesInput | null {
+  if (ev.step !== STEP_INPUT_GERENTES) return null;
+  const orfaos = (ev.data as { orfaos?: OrfaoEntry[] } | undefined)?.orfaos;
+  if (!Array.isArray(orfaos)) return null;
+  return { orfaos };
+}
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -39,8 +57,11 @@ function reducer(state: State, action: Action): State {
         logs: [...state.logs, ev],
         currentStep: ev.step ?? state.currentStep,
         spreadsheetPath: resultData?.spreadsheet_path ?? state.spreadsheetPath,
+        pendingInput: extractPendingInput(ev) ?? state.pendingInput,
       };
     }
+    case "input-resolved":
+      return { ...state, pendingInput: null };
     case "done": {
       const lastResult = [...state.logs].reverse().find((l) => (l.data as any)?.result);
       const resultStatus = (lastResult?.data as any)?.result?.status as string | undefined;
@@ -58,6 +79,7 @@ function reducer(state: State, action: Action): State {
         spreadsheetPath: action.result.spreadsheetPath ?? state.spreadsheetPath,
         durationMs: action.result.durationMs,
         currentStep: undefined,
+        pendingInput: null,
       };
     }
     case "clear":
@@ -174,15 +196,22 @@ export function useScriptRunner() {
     await window.electronAPI.openFile(state.spreadsheetPath);
   }, [state.spreadsheetPath]);
 
+  const submitGerentes = useCallback(async (mapping: Record<string, string>) => {
+    await window.electronAPI.provideGerentesInput(mapping);
+    dispatch({ type: "input-resolved" });
+  }, []);
+
   return {
     status: state.status,
     logs: state.logs,
     currentStep: state.currentStep,
     spreadsheetPath: state.spreadsheetPath,
     durationMs: state.durationMs,
+    pendingInput: state.pendingInput,
     run,
     cancel,
     clear,
     openSpreadsheet,
+    submitGerentes,
   };
 }

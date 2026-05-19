@@ -11,7 +11,6 @@
 # ==============================================================================
 
 import configparser
-import glob
 import json
 import logging
 import os
@@ -34,11 +33,14 @@ from directory_bootstrap import (
     detect_legacy_workspace,
     resolve_legacy_planilhas,
 )
+from input_bridge import request_input, CancelExecucao
+from xlsm_transacional import escrever_parcial, promover, limpar_publico_antigos
 
 # Exit codes
 EXIT_CONFIG_ERROR = 2
 EXIT_BASE_MISSING = 3
 EXIT_BASE_NEEDS_USER = 4  # Cascata falhou — UI deve pedir planilha ao usuario
+EXIT_PROCX_MISSING = 5    # Aba PROCX inexistente — nao ha como reinjetar
 
 BASE_FILENAME_PATTERN = re.compile(r"Gerencie Carteira_(\d{4}_\d{2}_\d{2})\.xlsm$")
 
@@ -60,6 +62,9 @@ def carregar_configuracoes(caminho_config_file: str) -> configparser.ConfigParse
         ("Paths", "pasta_logs"),
         ("Excel", "planilha_dados"),
         ("Excel", "coluna_verificacao"),
+        ("Excel", "sheet_procx"),
+        ("Excel", "col_procx_gerente"),
+        ("Excel", "col_procx_cnpj"),
         ("Email", "assunto_procurado"),
     ]
     for section, key in required:
@@ -70,7 +75,7 @@ def carregar_configuracoes(caminho_config_file: str) -> configparser.ConfigParse
 
     # Expande %USERPROFILE% em-place para todos os paths
     for key in ("pasta_destino_html", "pasta_diario_excel", "pasta_copia_excel",
-                "pasta_logs", "executavel_direciona"):
+                "pasta_logs"):
         if config.has_option("Paths", key):
             config["Paths"][key] = os.path.expandvars(config["Paths"][key])
 
@@ -185,9 +190,19 @@ def buscar_emails_novos(config: configparser.ConfigParser) -> list:
     return filtrados
 
 
-def extrair_dados_dos_anexos(emails, config: configparser.ConfigParser) -> pd.DataFrame:
+def extrair_dados_dos_anexos(emails, config: configparser.ConfigParser) -> tuple[pd.DataFrame, list]:
+    """
+    Parseia os anexos HTML e retorna (df, emails_processados).
+
+    IMPORTANTE (R5): este passo NAO marca mais os e-mails como lidos. A
+    marcacao `UnRead=False` foi movida para `marcar_emails_lidos()`, chamada
+    apenas APOS o `wb.save()` bem-sucedido — reduzindo a janela de perda de
+    dados (divida conhecida) e permitindo o input de gerentes orfaos antes de
+    consumir os e-mails.
+    """
     pasta_html = config["Paths"]["pasta_destino_html"]
     dados: list[list] = []
+    processados: list = []
     for email in emails:
         data_email = email.ReceivedTime.date()
         try:
@@ -212,9 +227,9 @@ def extrair_dados_dos_anexos(emails, config: configparser.ConfigParser) -> pd.Da
                     cols = [td.get_text(strip=True) for td in linha.find_all("td")]
                     if len(cols) >= 3:
                         dados.append([cols[0], cols[1], cols[2], data_email])
-                email.UnRead = False
-                emit("info", f"Email de {data_email.strftime('%d/%m/%Y')} marcado como lido",
-                     step="outlook.marked")
+                processados.append(email)
+                emit("info", f"Email de {data_email.strftime('%d/%m/%Y')} parseado",
+                     step="html.parsed")
                 break
         except Exception as e:
             emit("error", f"Falha ao processar email de {data_email}: {e}",
@@ -222,19 +237,210 @@ def extrair_dados_dos_anexos(emails, config: configparser.ConfigParser) -> pd.Da
             continue
 
     if not dados:
-        return pd.DataFrame()
+        return pd.DataFrame(), processados
 
     df = pd.DataFrame(dados, columns=["CNPJ", "Razão Social", "Alteração", "Data do recebimento do e-mail"])
     df["Data do recebimento do e-mail"] = pd.to_datetime(df["Data do recebimento do e-mail"], errors="coerce")
-    return df.sort_values(by="Data do recebimento do e-mail").reset_index(drop=True)
+    return df.sort_values(by="Data do recebimento do e-mail").reset_index(drop=True), processados
+
+
+def marcar_emails_lidos(emails: list) -> None:
+    """
+    Marca os e-mails processados como lidos (`UnRead=False`).
+
+    Invariante (R5): chamado SOMENTE apos `wb.save()` bem-sucedido. Se o save
+    falhar ou a execucao for cancelada/fechada, os e-mails permanecem nao
+    lidos e o dia pode ser reprocessado.
+    """
+    for email in emails:
+        try:
+            data_email = email.ReceivedTime.date()
+            email.UnRead = False
+            emit("info", f"Email de {data_email.strftime('%d/%m/%Y')} marcado como lido",
+                 step="outlook.marked")
+        except Exception as e:
+            emit("warning", f"Falha ao marcar e-mail como lido: {e}",
+                 step="outlook.mark.fail")
+
+
+class ProcxSheetMissing(Exception):
+    """A aba PROCX configurada nao existe no workbook (nao apenas vazia)."""
+
+
+def _normalizar_cnpj(valor) -> str:
+    """Normaliza CNPJ para comparacao (apenas digitos)."""
+    if valor is None:
+        return ""
+    return re.sub(r"\D", "", str(valor))
+
+
+def ler_mapa_procx(wb, config: configparser.ConfigParser) -> dict[str, str]:
+    """
+    Le a aba PROCX (config [Excel] sheet_procx) e monta o mapa
+    {cnpj_normalizado: gerente}. Aba inexistente -> ProcxSheetMissing.
+    Aba existente porem vazia -> mapa vazio (todos os CNPJs serao orfaos).
+    """
+    nome_sheet = config["Excel"]["sheet_procx"]
+    col_ger = config["Excel"]["col_procx_gerente"]
+    col_cnpj = config["Excel"]["col_procx_cnpj"]
+
+    nomes = [s.name for s in wb.sheets]
+    if nome_sheet not in nomes:
+        raise ProcxSheetMissing(nome_sheet)
+
+    ws = wb.sheets[nome_sheet]
+    last_row = ws.range(f"{col_cnpj}{ws.cells.rows.count}").end("up").row
+
+    mapa: dict[str, str] = {}
+    if last_row < 1:
+        return mapa
+
+    gerentes = ws.range(f"{col_ger}1:{col_ger}{last_row}").value
+    cnpjs = ws.range(f"{col_cnpj}1:{col_cnpj}{last_row}").value
+    if not isinstance(gerentes, list):
+        gerentes = [gerentes]
+    if not isinstance(cnpjs, list):
+        cnpjs = [cnpjs]
+
+    for ger, cnpj in zip(gerentes, cnpjs):
+        chave = _normalizar_cnpj(cnpj)
+        if chave and ger not in (None, ""):
+            mapa[chave] = str(ger).strip()
+
+    emit("info", f"PROCX '{nome_sheet}': {len(mapa)} cadastro(s) CNPJ->gerente",
+         step="excel.procx.loaded", data={"count": len(mapa)})
+    return mapa
+
+
+def detectar_orfaos(df: pd.DataFrame, mapa: dict[str, str]) -> list[dict]:
+    """
+    Cruza os CNPJs do df com o mapa PROCX. Um CNPJ e orfao se nao existir no
+    mapa. CNPJ duplicado entre e-mails e resolvido uma unica vez (dedupe).
+    """
+    orfaos: list[dict] = []
+    vistos: set[str] = set()
+    for _, row in df.iterrows():
+        cnpj_raw = row["CNPJ"]
+        chave = _normalizar_cnpj(cnpj_raw)
+        if not chave or chave in vistos or chave in mapa:
+            continue
+        vistos.add(chave)
+        orfaos.append({
+            "cnpj": str(cnpj_raw).strip(),
+            "razao_social": str(row.get("Razão Social", "")).strip(),
+        })
+    emit("info", f"{len(orfaos)} CNPJ(s) orfao(s) sem gerente no PROCX",
+         step="excel.orfaos.detected", data={"count": len(orfaos)})
+    return orfaos
+
+
+def _col_idx(letra: str) -> int:
+    """Converte letra de coluna Excel (ex: 'B', 'AA') em indice 1-based."""
+    idx = 0
+    for ch in letra.strip().upper():
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
+    return idx
+
+
+def _obter_tabela_procx(ws, config: configparser.ConfigParser):
+    """
+    Retorna o ListObject (Tabela formatada) da aba PROCX, ou None.
+
+    Se `config [Excel] tabela_procx` estiver definido, busca por nome; senao
+    usa a primeira Tabela da aba (caso tipico: 1 Tabela por aba).
+    """
+    try:
+        los = ws.api.ListObjects
+        total = int(los.Count)
+    except Exception:
+        return None
+    if total < 1:
+        return None
+    nome = config.get("Excel", "tabela_procx", fallback="").strip()
+    if nome:
+        for i in range(1, total + 1):
+            lo = los.Item(i)
+            if str(lo.Name) == nome:
+                return lo
+        return None
+    return los.Item(1)
+
+
+def reinjetar_procx(wb, config: configparser.ConfigParser,
+                    mapping: dict[str, str]) -> int:
+    """
+    Acrescenta os gerentes resolvidos na aba PROCX (gerente/CNPJ nas colunas
+    do config). A aba e uma Tabela formatada: a linha e inserida via API do
+    ListObject (`ListRows.Add`), o que EXPANDE a Tabela e faz as colunas
+    calculadas se autopreencherem — assim a referencia estruturada do PROCX
+    em 'E-Mail BD' passa a cobrir a nova linha (evita o #N/D de antes).
+
+    Fallback (aba sem Tabela): escreve celulas e replica a linha anterior.
+    Retorna a quantidade de linhas inseridas.
+    """
+    if not mapping:
+        return 0
+
+    nome_sheet = config["Excel"]["sheet_procx"]
+    col_ger = config["Excel"]["col_procx_gerente"]
+    col_cnpj = config["Excel"]["col_procx_cnpj"]
+    idx_ger = _col_idx(col_ger)
+    idx_cnpj = _col_idx(col_cnpj)
+    ws = wb.sheets[nome_sheet]
+
+    inseridos = 0
+    lo = _obter_tabela_procx(ws, config)
+
+    if lo is not None:
+        for cnpj, gerente in mapping.items():
+            nova = lo.ListRows.Add()  # ao final; expande a Tabela
+            linha = int(nova.Range.Row)
+            ws.range((linha, idx_ger)).value = gerente
+            ws.range((linha, idx_cnpj)).value = cnpj
+            inseridos += 1
+        emit("step",
+             f"{inseridos} gerente(s) reinjetado(s) na Tabela de '{nome_sheet}'",
+             step="excel.procx.reinjetado",
+             data={"count": inseridos, "modo": "tabela"})
+        return inseridos
+
+    # Fallback: aba sem Tabela formatada
+    emit("warning",
+         f"Aba '{nome_sheet}' sem Tabela formatada — usando fallback de celulas",
+         step="excel.procx.fallback")
+    last_row = ws.range(f"{col_cnpj}{ws.cells.rows.count}").end("up").row
+    max_col = max(ws.used_range.last_cell.column, idx_ger, idx_cnpj)
+    linha = last_row + 1 if last_row >= 1 else 1
+    for cnpj, gerente in mapping.items():
+        prev = linha - 1
+        if prev >= 1:
+            for c in range(1, max_col + 1):
+                if c in (idx_ger, idx_cnpj):
+                    continue
+                ws.range((prev, c)).copy(ws.range((linha, c)))
+        ws.range((linha, idx_ger)).value = gerente
+        ws.range((linha, idx_cnpj)).value = cnpj
+        linha += 1
+        inseridos += 1
+
+    emit("step", f"{inseridos} gerente(s) reinjetado(s) em '{nome_sheet}'",
+         step="excel.procx.reinjetado", data={"count": inseridos, "modo": "celulas"})
+    return inseridos
 
 
 def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser,
                              caminho_base_excel: str) -> tuple[str, bool]:
-    """Retorna (caminho_planilha_salva, tem_pendencias)."""
+    """
+    Retorna (caminho_planilha_salva, tem_pendencias).
+
+    Sessao xlwings unica: le PROCX -> detecta orfaos -> (se houver) pede os
+    gerentes a UI via stdin -> reinjeta no PROCX -> cola em E-Mail BD ->
+    salva atomicamente (.partial -> rename). A base nunca e sobrescrita
+    in-place (zero-copy). DIRECIONA foi removido: #N/D residual vira apenas
+    warning, nada e aberto.
+    """
     nome_planilha = config["Excel"]["planilha_dados"]
     col_verificacao = config["Excel"]["coluna_verificacao"]
-    executavel = config.get("Paths", "executavel_direciona", fallback=None)
     pasta_diario = config["Paths"]["pasta_diario_excel"]
     pasta_copia = config["Paths"]["pasta_copia_excel"]
 
@@ -253,6 +459,25 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         wb = app.books.open(caminho_base_excel)
         time.sleep(1)
 
+        # --- PROCX: mapa, orfaos e captura em runtime (ANTES de qualquer save
+        #     e ANTES de marcar e-mails lidos — R5) ---
+        mapa = ler_mapa_procx(wb, config)        # ProcxSheetMissing se ausente
+        orfaos = detectar_orfaos(df, mapa)
+        if orfaos:
+            resposta = request_input(
+                "input.gerentes.needed",
+                {"orfaos": orfaos},
+                msg=f"Informe o gerente de {len(orfaos)} CNPJ(s) sem cadastro",
+            )
+            mapping = resposta.get("mapping") or {}
+            reinjetar_procx(wb, config, mapping)
+            try:
+                app.calculate()
+            except Exception:
+                pass
+            time.sleep(1)
+
+        # --- Colagem em E-Mail BD (logica preservada) ---
         ws = wb.sheets[nome_planilha]
         last_row = ws.range("A" + str(ws.cells.rows.count)).end("up").row
         if last_row > 1 and not ws.range(f"{col_verificacao}{last_row}").formula.startswith("="):
@@ -272,10 +497,7 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         emit("step", f"{len(df)} linhas inseridas", step="excel.insert",
              data={"count": int(len(df))})
 
-        # Forca recalculo antes de ler a coluna de verificacao.
-        # As formulas VLOOKUP recem-coladas podem nao ter recalculado ainda
-        # (calc assincrono / modo manual), causando falso negativo/positivo
-        # na deteccao de pendencias #N/D.
+        # Forca recalculo antes de ler a coluna de verificacao (calc assincrono)
         try:
             app.calculate()
         except Exception:
@@ -290,39 +512,28 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         if any(isinstance(v, str) and v.startswith("#") for v in verificados):
             pendencias = True
 
-        wb.save(caminho_novo)
-        emit("step", f"Planilha diaria salva: {caminho_novo}", step="excel.save",
-             data={"path": caminho_novo})
+        # --- Fase 1: escreve os parciais com o Excel AINDA ABERTO ---
+        # (a promocao/rename so e possivel apos o Excel liberar o lock)
+        parcial_local = escrever_parcial(wb, caminho_novo)
 
-        if pendencias:
-            emit("warning", "Planilha salva com pendencias (#N/D na coluna de verificacao)",
-                 step="excel.warnings")
-            logging.warning(f"Arquivo principal salvo com pendencias em: {caminho_novo}")
-            if executavel and os.path.exists(executavel):
-                os.startfile(executavel)
-
-        # Copia publica
         public_check = verify_public_path(pasta_copia)
-        if not public_check["accessible"]:
-            emit("warning", f"Pasta publica indisponivel: {pasta_copia} — etapa pulada",
-                 step="publico.skipped")
-        else:
-            emit("step", f"Atualizando pasta publica: {pasta_copia}", step="publico.copy")
+        public_acessivel = public_check["accessible"]
+        caminho_publico = os.path.join(pasta_copia, novo_nome)
+        parcial_pub = None
+        if public_acessivel:
             try:
-                for f in glob.glob(os.path.join(pasta_copia, "Gerencie*.xls*")):
-                    try:
-                        os.remove(f)
-                        emit("info", f"Removido: {os.path.basename(f)}", step="publico.cleanup")
-                    except OSError as e:
-                        emit("error", f"Falha ao remover {f}: {e}", step="publico.cleanup.fail")
-
-                caminho_publico = os.path.join(pasta_copia, novo_nome)
-                wb.save(caminho_publico)
-                emit("info", f"Copia publica salva: {caminho_publico}", step="publico.saved",
-                     data={"path": caminho_publico})
+                parcial_pub = escrever_parcial(wb, caminho_publico)
             except Exception as e:
-                emit("error", f"Falha ao publicar copia: {e}", step="publico.fail")
+                emit("error", f"Falha ao preparar copia publica: {e}",
+                     step="publico.fail")
+                parcial_pub = None
 
+    except CancelExecucao as e:
+        # Fechamento/cancelamento durante o input: nada e salvo, base intacta,
+        # e-mails permanecem nao lidos (marcacao so ocorre apos save no main).
+        emit("warning", f"Execucao cancelada pelo usuario — nada foi gravado ({e})",
+             step="excel.cancelled")
+        raise
     except Exception as e:
         emit("error", f"Erro na automacao do Excel: {e}", step="excel.error")
         logging.critical(f"Erro na automacao do Excel: {e}", exc_info=True)
@@ -332,6 +543,30 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
             wb.close()
         if app:
             app.quit()
+
+    # --- Fase 2: Excel ja fechado -> promocao atomica (rename) ---
+    promover(parcial_local, caminho_novo)
+    emit("step", f"Planilha diaria salva: {caminho_novo}", step="excel.save",
+         data={"path": caminho_novo})
+
+    if pendencias:
+        emit("warning",
+             "Planilha salva com pendencias (#N/D na coluna de verificacao)",
+             step="excel.warnings")
+        logging.warning(f"Arquivo principal salvo com pendencias em: {caminho_novo}")
+
+    if not public_acessivel:
+        emit("warning", f"Pasta publica indisponivel: {pasta_copia} — etapa pulada",
+             step="publico.skipped")
+    elif parcial_pub is not None:
+        emit("step", f"Atualizando pasta publica: {pasta_copia}", step="publico.copy")
+        try:
+            limpar_publico_antigos(pasta_copia)
+            promover(parcial_pub, caminho_publico)
+            emit("info", f"Copia publica salva: {caminho_publico}", step="publico.saved",
+                 data={"path": caminho_publico})
+        except Exception as e:
+            emit("error", f"Falha ao publicar copia: {e}", step="publico.fail")
 
     return caminho_novo, pendencias
 
@@ -405,13 +640,28 @@ def main() -> None:
     # um exit 4 ocorre sem consumir nenhum e-mail.
     caminho_base = encontrar_arquivo_base_excel(config)
 
-    df = extrair_dados_dos_anexos(emails, config)
+    df, emails_processados = extrair_dados_dos_anexos(emails, config)
     if df.empty:
         emit("warning", "Nenhum dado valido extraido dos anexos", step="html.empty")
         emit_result("warning", None)
         return
 
-    caminho_salvo, pendencias = atualizar_planilha_excel(df, config, caminho_base)
+    try:
+        caminho_salvo, pendencias = atualizar_planilha_excel(df, config, caminho_base)
+    except CancelExecucao:
+        # Fechamento/cancelamento durante a captura de gerentes orfaos.
+        # Nada foi gravado; e-mails continuam nao lidos -> reprocessaveis.
+        emit_result("warning", None)
+        return
+    except ProcxSheetMissing as e:
+        emit("error",
+             f"Aba PROCX '{e}' inexistente — impossivel reinjetar gerentes",
+             step="excel.procx.missing")
+        emit_result("error", None)
+        sys.exit(EXIT_PROCX_MISSING)
+
+    # R5: e-mails so sao marcados como lidos APOS o save bem-sucedido.
+    marcar_emails_lidos(emails_processados)
 
     status = "warning" if pendencias else "ok"
     emit_result(status, caminho_salvo)

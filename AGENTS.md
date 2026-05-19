@@ -90,10 +90,10 @@ would find no unread mail and silently lose a day of data. Do not reorder these
 calls. This ordering has **no test** (`test_cascata_base.py` tests the cascade
 in isolation) — a regression here passes CI unnoticed.
 
-**Known residual risk (not yet fixed):** emails are still marked read in
-`extrair_dados_dos_anexos()` *before* `wb.save()`. If the Excel save fails, the
-day's emails are already consumed and the data is lost. A full fix requires
-deferring `UnRead = False` until after the save.
+**Email marking (v4.x):** `extrair_dados_dos_anexos()` no longer marks
+emails read; `marcar_emails_lidos()` is called only *after* the transactional
+save is promoted (and after the orphan-manager input). Cancelling/closing or
+a save failure leaves emails unread → the day is reprocessable.
 
 ## Config & runtime layout
 
@@ -110,10 +110,17 @@ offline, the publish step is skipped with a graceful warning.
 
 Excel rules: workbooks **must** stay `.xlsm` (preserve VBA macros); the VLOOKUP
 formula in the verification column (`config [Excel] coluna_verificacao`, default
-`E`) is copied from the previous row into new rows to avoid `#REF`; `#N/D`
-results mean an unregistered CNPJ and produce a "pendências" warning (and launch
-`executavel_direciona` if present). The core forces `app.calculate()` before
-reading that column to avoid false `#N/D` detection from async recalculation.
+`E`) is copied from the previous row into new rows to avoid `#REF`. The core
+forces `app.calculate()` before reading that column. **v4.x:** orphan
+managers are resolved *before* pasting (PROCX read → orphan detection →
+runtime form over stdin → reinjection into the PROCX sheet), so no `#N/D`
+should remain; any residual `#N/D` is only a warning — DIRECIONA was removed
+entirely (code + config). Writes are transactional (`xlsm_transacional`,
+two-phase: `escrever_parcial` while Excel is open, `promover` only after
+`wb.close()`/`app.quit()` releases the lock; never overwriting the base
+in-place; Electron sweeps orphan `*.partial.*`/`*.bak.*`). New `[Excel]`
+keys: `sheet_procx`,
+`col_procx_gerente`, `col_procx_cnpj`.
 
 ## Versionamento (SemVer)
 

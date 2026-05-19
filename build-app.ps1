@@ -35,7 +35,7 @@ finally { Pop-Location }
 
 $unpacked = "$root\build\dist-electron\win-unpacked"
 if (-not (Test-Path "$unpacked\Gerencie Carteira.exe")) {
-    throw "win-unpacked nao foi gerado — verifique os logs acima."
+    throw "win-unpacked nao foi gerado - verifique os logs acima."
 }
 
 Write-Host "[4/4] Relocando para .\Aplicativo ..." -ForegroundColor Cyan

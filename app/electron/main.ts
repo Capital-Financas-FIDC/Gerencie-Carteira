@@ -12,6 +12,7 @@ let activeChild: ChildProcess | null = null;
 let runStartMs = 0;
 let lastSpreadsheetPath: string | null = null;
 let allowedPrefixes: string[] = [];
+let forceClose = false;
 
 // --- Helpers ---
 const isDev = !app.isPackaged;
@@ -48,6 +49,67 @@ function resolveLocalPlanilhasDir(): string {
     // ignore
   }
   return path.join(process.env.USERPROFILE || "", "Documents", "Gerencie_Carteira", "planilhas");
+}
+
+function resolvePublicDir(): string | null {
+  try {
+    const cfg = fs.readFileSync(resolveConfigPath(), "utf-8");
+    const m = cfg.match(/^pasta_copia_excel\s*=\s*(.+)$/m);
+    if (m) {
+      return m[1].replace(/%USERPROFILE%/gi, process.env.USERPROFILE || "").trim();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+// Recuperacao do supervisor: remove artefatos transacionais orfaos
+// (*.partial.<ext> = save interrompido; *.bak.<ext> = backup de colisao) de
+// execucoes abortadas. Idempotente — seguro rodar no boot e no fechamento.
+// O marcador vem ANTES da extensao para preservar .xlsm para o xlwings.
+const ORPHAN_RE = /\.(?:partial|bak)\.[^.]+$/i;
+function sweepOrphans(): void {
+  const dirs = [resolveLocalPlanilhasDir(), resolvePublicDir()].filter(
+    (d): d is string => !!d && fs.existsSync(d)
+  );
+  for (const dir of dirs) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      if (ORPHAN_RE.test(name)) {
+        try {
+          fs.unlinkSync(path.join(dir, name));
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  }
+}
+
+// Aguarda o core encerrar apos o cancel cooperativo; mata se estourar o prazo.
+function waitChildExit(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (!activeChild) return resolve();
+    const child = activeChild;
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // ignore
+      }
+      resolve();
+    }, timeoutMs);
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function yesterdayDateStamp(): string {
@@ -107,6 +169,13 @@ function createMainWindow(): void {
 
   mainWindow.setMenuBarVisibility(false);
 
+  // Confirmacao de fechamento durante execucao + rollback transacional.
+  mainWindow.on("close", (e) => {
+    if (forceClose || !activeChild) return;
+    e.preventDefault();
+    void handleCloseDuringRun();
+  });
+
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -129,7 +198,7 @@ ipcMain.handle("script:run", async () => {
   try {
     activeChild = spawn(cmd, args, {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: {
         ...process.env,
@@ -211,6 +280,31 @@ ipcMain.handle("script:run", async () => {
   return { ok: true };
 });
 
+// --- Escrita no stdin do core (canal de input UI -> Python) ---
+function writeToChildStdin(obj: unknown): boolean {
+  if (!activeChild || !activeChild.stdin || activeChild.stdin.destroyed) {
+    return false;
+  }
+  try {
+    activeChild.stdin.write(JSON.stringify(obj) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Sentinela de cancelamento cooperativo (usado no fechamento em runtime)
+function sendCancelToChild(): boolean {
+  return writeToChildStdin({ cancel: true });
+}
+
+// --- IPC: fornecer input pedido pelo Python (ex: gerentes orfaos) ---
+ipcMain.handle("script:provideInput", async (_evt, payload: unknown) => {
+  if (!activeChild) return { ok: false, reason: "not_running" };
+  const ok = writeToChildStdin(payload);
+  return ok ? { ok: true } : { ok: false, reason: "stdin_unavailable" };
+});
+
 // --- IPC: versao do app (fonte unica: package.json) ---
 ipcMain.handle("app:version", () => app.getVersion());
 
@@ -263,9 +357,37 @@ ipcMain.handle("dialog:choose-base", async () => {
   }
 });
 
+// Pergunta SIM/NAO ao fechar em runtime; se confirmar, cancela o core de
+// forma cooperativa, aguarda/mata, varre artefatos .partial/.bak e fecha.
+async function handleCloseDuringRun(): Promise<void> {
+  if (!mainWindow) return;
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: "question",
+    buttons: ["Sim", "Não"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: "Gerencie Carteira",
+    message: "O programa está em execução. Deseja realmente fechar?",
+    detail:
+      "Se fechar agora, a execução será descartada e a planilha anterior " +
+      "será mantida intacta (como se o programa não tivesse rodado).",
+  });
+
+  if (response !== 0) return; // "Não" — permanece em execucao
+
+  sendCancelToChild();
+  await waitChildExit(4000);
+  activeChild = null;
+  sweepOrphans();
+  forceClose = true;
+  mainWindow?.close();
+}
+
 // --- App lifecycle ---
 app.whenReady().then(() => {
   loadAllowedPathPrefixes();
+  sweepOrphans(); // recuperacao de execucao abortada anterior
   createMainWindow();
 
   app.on("activate", () => {
@@ -275,5 +397,6 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (activeChild) activeChild.kill();
+  sweepOrphans();
   if (process.platform !== "darwin") app.quit();
 });
