@@ -27,14 +27,16 @@
 - MAJOR v4.0.0: fluxo `#N/D`/DIRECIONA substituido por captura de gerentes orfaos em runtime. Novo canal stdin bidirecional (`input_bridge`), formulario Electron/React, reinjecao no PROCX (colunas replicam linha anterior). DIRECIONA removido (codigo+config). Escrita transacional zero-copy (`xlsm_transacional` + sweep no supervisor). `UnRead=False` adiado para apos o save. Novas suites pytest (orfaos, rollback, input_bridge). MAJOR (e nao MINOR como rascunhado no prompt) por quebra operacional p/ usuario + `config.ini` incompativel
 - PATCH v4.0.1: dois bugs do xlwings na escrita transacional. (1) marcador movido para ANTES da extensao (`.partial.xlsm`/`.bak.xlsm`) — o Excel deduz o formato pela extensao e quebrava com `.xlsm.partial`. (2) API dividida em duas fases: `escrever_parcial(wb,...)` com o Excel aberto e `promover(parcial,destino)` SO apos `wb.close()`/`app.quit()` (o Excel mantem lock no arquivo salvo -> `os.replace` dava `[WinError 32]`); `promover` faz retry no release preguicoso. Regex de sweep ajustada (Python + Electron)
 - PATCH v4.0.2: reinjecao no PROCX via API da Tabela. A aba e um ListObject e a coluna E de 'E-Mail BD' usa referencia estruturada; escrever celulas abaixo da Tabela NAO a expandia -> PROCX nao cobria a nova linha -> `#N/D`. Agora `reinjetar_procx` usa `ListObject.ListRows.Add` (Tabela expande, colunas calculadas autopreenchem); config opcional `tabela_procx`; fallback de celulas se a aba nao tiver Tabela
+- HOTFIX (post-v4.0.2): nome da pasta publica no `config.ini` estava sem acento (`GERENCIE CARTEIRA PUBLICA`); a pasta real no servidor e `GERENCIE CARTEIRA PÚBLICA`. `verify_public_path` retornava `accessible=False` em toda execucao -> etapa publica era pulada. Correcao em `config/config.ini` + docs.
+- MINOR v4.1.0: `atualizar_pivots(wb)` itera todas as PivotTables de todas as abas e chama `RefreshTable()` apos a colagem em E-Mail BD e antes da escrita transacional. Garante que a copia publica ja sai com as tabelas dinamicas atualizadas (gestor abre e consulta direto). Falha em uma pivot vira warning; ausencia de pivots emite info, sem quebrar o pipeline
 
-## Metricas Snapshot (2026-05-18)
+## Metricas Snapshot (2026-05-20)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.0.2 |
+| Versao atual | v4.1.0 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~30 (v1.0.0 → v4.0.2, agora linear no mesmo git) |
+| Releases historicas | ~30 (v1.0.0 → v4.1.0, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~6 suites pytest) |
 | Testes UI | inexistentes |

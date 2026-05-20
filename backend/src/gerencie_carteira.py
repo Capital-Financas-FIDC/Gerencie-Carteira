@@ -428,6 +428,41 @@ def reinjetar_procx(wb, config: configparser.ConfigParser,
     return inseridos
 
 
+def atualizar_pivots(wb) -> int:
+    """
+    Atualiza (RefreshTable) TODAS as PivotTables de todas as abas do workbook.
+    Falha em uma pivot vira warning e nao interrompe o pipeline. Retorna a
+    contagem de pivots atualizadas com sucesso.
+    """
+    total = 0
+    for sheet in wb.sheets:
+        try:
+            pivots = sheet.api.PivotTables()
+            count = int(pivots.Count)
+        except Exception:
+            continue
+        for i in range(1, count + 1):
+            try:
+                pt = pivots.Item(i)
+                try:
+                    pt.PivotCache().BackgroundQuery = False
+                except Exception:
+                    pass
+                pt.RefreshTable()
+                total += 1
+            except Exception as e:
+                emit("warning",
+                     f"Falha ao atualizar pivot #{i} em '{sheet.name}': {e}",
+                     step="excel.pivot.warning")
+    if total:
+        emit("step", f"{total} tabela(s) dinamica(s) atualizada(s)",
+             step="excel.pivot.refreshed", data={"count": total})
+    else:
+        emit("info", "Nenhuma tabela dinamica encontrada para atualizar",
+             step="excel.pivot.none")
+    return total
+
+
 def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser,
                              caminho_base_excel: str) -> tuple[str, bool]:
     """
@@ -511,6 +546,10 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
             verificados = [verificados]
         if any(isinstance(v, str) and v.startswith("#") for v in verificados):
             pendencias = True
+
+        # Atualiza tabelas dinamicas com os dados ja recalculados.
+        # Roda ANTES do save local p/ que a copia publica saia ja atualizada.
+        atualizar_pivots(wb)
 
         # --- Fase 1: escreve os parciais com o Excel AINDA ABERTO ---
         # (a promocao/rename so e possivel apos o Excel liberar o lock)

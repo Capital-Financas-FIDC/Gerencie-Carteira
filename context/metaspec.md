@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 1.6 | Atualizado: 2026-05-18
+> Contexto para agentes AI. Versao: 1.7 | Atualizado: 2026-05-20
 
 ## IDENTIDADE
 
@@ -108,14 +108,15 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.0.2 — 18/05/2026)
+## ESTADO ATUAL (v4.1.0 — 20/05/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha MAJOR v4** (atual: v4.0.2): substitui o fluxo `#N/D`/DIRECIONA por captura de gerentes orfaos em runtime + escrita transacional. Classificado MAJOR por quebra operacional (DIRECIONA removido, formulario bloqueante no meio da execucao) e `config.ini` incompativel (novas chaves PROCX obrigatorias, `executavel_direciona` removido). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional (marcador antes da extensao; save em 2 fases) e a reinjecao via Tabela (ListObject).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.1.0): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0) com refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
 - Canal stdin bidirecional (`input_bridge`); DIRECIONA totalmente removido (codigo + config)
 - Escrita transacional zero-copy em duas fases (`escrever_parcial` + `promover` apos fechar o Excel); base nunca sobrescrita in-place
+- Refresh automatico de TODAS as PivotTables do workbook apos a colagem e antes do save (`atualizar_pivots`) — copia publica sai ja atualizada p/ consulta direta
 - Confirmacao SIM/NAO ao fechar em runtime + sweep de `.partial`/`.bak` no supervisor (boot/fechamento)
 - `UnRead=False` adiado para apos o save (janela de perda reduzida)
 - Cascata da planilha base + auto-rerun via dialog Electron (exit 4) inalterada
