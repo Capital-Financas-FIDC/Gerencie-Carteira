@@ -65,4 +65,4 @@ if __name__ == "__main__":
     result = ensure_workspace()
     print(json.dumps(result, indent=2, ensure_ascii=False))
     print("legacy:", detect_legacy_workspace())
-    print("publico A:", verify_public_path(r"A:\PUBLICA\GERENCIE CARTEIRA PUBLICA"))
+    print("publico A:", verify_public_path(r"A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA"))

@@ -73,7 +73,7 @@ through `emit()` — a stray `print()` corrupts the stream.
 **The base-spreadsheet cascade is the most fragile invariant.**
 `encontrar_arquivo_base_excel()` searches in order: (1) local `planilhas`,
 (2) legacy v2.14.1 folder `Documents\Gerencie Carteira\Diário` (note the space),
-(3) network share `A:\PUBLICA\GERENCIE CARTEIRA PUBLICA`. Found-elsewhere bases
+(3) network share `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA`. Found-elsewhere bases
 are copied local first. If all fail it emits `excel.base.needs_user` and exits
 with code **4**. `main.ts` (via `useScriptRunner`) catches exit 4, opens a
 native file dialog, copies the chosen file local (renaming to
@@ -105,7 +105,7 @@ whitelist and to resolve the local `planilhas` dir for the dialog copy.
 On every run the Python core idempotently bootstraps
 `%USERPROFILE%\Documents\Gerencie_Carteira\{planilhas,html,logs}`
 (`directory_bootstrap.ensure_workspace`). The public share
-`A:\PUBLICA\GERENCIE CARTEIRA PUBLICA` is **only verified, never created** — if
+`A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA` is **only verified, never created** — if
 offline, the publish step is skipped with a graceful warning.
 
 Excel rules: workbooks **must** stay `.xlsm` (preserve VBA macros); the VLOOKUP

@@ -44,7 +44,7 @@ Ao iniciar, o app cria idempotentemente:
 └── logs\        # Log de execucao
 ```
 
-A pasta publica `A:\PUBLICA\GERENCIE CARTEIRA PUBLICA` e rota de rede pre-existente e NAO e criada pelo app — apenas verificada, com warning gracioso se offline.
+A pasta publica `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA` e rota de rede pre-existente e NAO e criada pelo app — apenas verificada, com warning gracioso se offline.
 
 ## Dev
 

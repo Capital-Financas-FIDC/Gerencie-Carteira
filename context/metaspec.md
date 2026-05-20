@@ -62,7 +62,7 @@ boot → config.loaded → workspace.bootstrap → outlook.fetch
 - **Entrada:** Anexos HTML com tabela (CNPJ, Razao Social, Alteracao)
 - **Saidas:** 2 planilhas `.xlsm` — diaria local (`\planilhas`) + copia publica em rede
 - **Workspace:** `%USERPROFILE%\Documents\Gerencie_Carteira\{planilhas,html,logs}` — criado idempotentemente a cada run (`ensure_workspace`)
-- **Pasta publica:** `A:\PUBLICA\GERENCIE CARTEIRA PUBLICA` — rota de rede pre-existente, apenas VERIFICADA, nunca criada; se offline a etapa e pulada com warning
+- **Pasta publica:** `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA` — rota de rede pre-existente, apenas VERIFICADA, nunca criada; se offline a etapa e pulada com warning
 - **PROCX:** aba de cadastro CNPJ->gerente em `config [Excel] sheet_procx` (default `PROCX GERENTES`), colunas `col_procx_gerente` (B) e `col_procx_cnpj` (C)
 - **Config:** `config.ini` usa `%USERPROFILE%` literal (lido com `interpolation=None`); `main.ts` tambem parseia o arquivo via regex para a whitelist do `shell.openPath`, a pasta local do dialog e a pasta publica do sweep
 
