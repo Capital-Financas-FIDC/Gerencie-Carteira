@@ -108,7 +108,7 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.1.0 — 20/05/2026)
+## ESTADO ATUAL (v4.1.1 — 20/05/2026)
 
 Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.1.0): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0) com refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 

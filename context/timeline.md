@@ -29,14 +29,15 @@
 - PATCH v4.0.2: reinjecao no PROCX via API da Tabela. A aba e um ListObject e a coluna E de 'E-Mail BD' usa referencia estruturada; escrever celulas abaixo da Tabela NAO a expandia -> PROCX nao cobria a nova linha -> `#N/D`. Agora `reinjetar_procx` usa `ListObject.ListRows.Add` (Tabela expande, colunas calculadas autopreenchem); config opcional `tabela_procx`; fallback de celulas se a aba nao tiver Tabela
 - HOTFIX (post-v4.0.2): nome da pasta publica no `config.ini` estava sem acento (`GERENCIE CARTEIRA PUBLICA`); a pasta real no servidor e `GERENCIE CARTEIRA PÚBLICA`. `verify_public_path` retornava `accessible=False` em toda execucao -> etapa publica era pulada. Correcao em `config/config.ini` + docs.
 - MINOR v4.1.0: `atualizar_pivots(wb)` itera todas as PivotTables de todas as abas e chama `RefreshTable()` apos a colagem em E-Mail BD e antes da escrita transacional. Garante que a copia publica ja sai com as tabelas dinamicas atualizadas (gestor abre e consulta direto). Falha em uma pivot vira warning; ausencia de pivots emite info, sem quebrar o pipeline
+- PATCH v4.1.1: corrige mojibake no input de gerentes orfaos. No PyInstaller `--onefile`, `sys.stdin` em modo texto ignorava `PYTHONIOENCODING=utf-8` e caia em cp1252 -> "ADMINISTRAÇÃO" virava "ADMINISTRAÃ‡ÃƒO" na planilha. `input_bridge.request_input` agora le `sys.stdin.buffer` (bytes) e decodifica UTF-8 explicitamente; UnicodeDecodeError vira warning, nao derruba o stream
 
 ## Metricas Snapshot (2026-05-20)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.1.0 |
+| Versao atual | v4.1.1 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~30 (v1.0.0 → v4.1.0, agora linear no mesmo git) |
+| Releases historicas | ~30 (v1.0.0 → v4.1.1, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~6 suites pytest) |
 | Testes UI | inexistentes |

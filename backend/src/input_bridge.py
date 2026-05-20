@@ -37,12 +37,21 @@ def request_input(step: str, payload: dict[str, Any], *, msg: str = "Aguardando 
     """
     emit("step", msg, step=step, data=payload)
 
-    stdin = sys.stdin
+    # Le bytes crus e decodifica UTF-8 explicitamente. Electron envia UTF-8
+    # via child.stdin.write(), mas o sys.stdin em modo texto do PyInstaller
+    # frozen pode ignorar PYTHONIOENCODING e cair em cp1252 (Windows),
+    # corrompendo caracteres acentuados (ex: "ADMINISTRAÇÃO" -> "ADMINISTRAÃ‡ÃƒO").
+    stdin = sys.stdin.buffer
     while True:
-        linha = stdin.readline()
-        if linha == "":  # EOF — processo sendo encerrado
+        linha_bytes = stdin.readline()
+        if not linha_bytes:  # EOF — processo sendo encerrado
             raise CancelExecucao("stdin fechado (EOF) durante request de input")
-        linha = linha.strip()
+        try:
+            linha = linha_bytes.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            emit("warning", "Resposta de input com bytes invalidos (ignorada)",
+                 step=f"{step}.invalid")
+            continue
         if not linha:
             continue
         try:
