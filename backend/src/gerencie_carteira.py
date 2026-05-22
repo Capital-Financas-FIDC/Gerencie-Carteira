@@ -43,6 +43,10 @@ EXIT_BASE_NEEDS_USER = 4  # Cascata falhou — UI deve pedir planilha ao usuario
 EXIT_PROCX_MISSING = 5    # Aba PROCX inexistente — nao ha como reinjetar
 
 BASE_FILENAME_PATTERN = re.compile(r"Gerencie Carteira_(\d{4}_\d{2}_\d{2})\.xlsm$")
+HTML_FILENAME_PATTERN = re.compile(r"Gerencie_Carteira_(\d{4}_\d{2}_\d{2})\.html$")
+
+# Retencao: backups mantidos quando o config nao define [Retencao] max_arquivos.
+LIMITE_BACKUPS_PADRAO = 30
 
 
 def carregar_configuracoes(caminho_config_file: str) -> configparser.ConfigParser:
@@ -175,6 +179,53 @@ def encontrar_arquivo_base_excel(config: configparser.ConfigParser) -> str:
          step="excel.base.needs_user",
          data={"searched": searched})
     sys.exit(EXIT_BASE_NEEDS_USER)
+
+
+def limpar_backups_antigos(pasta: str, padrao: re.Pattern, limite: int,
+                           rotulo: str) -> int:
+    """
+    Mantem no maximo `limite` arquivos que casam `padrao` em `pasta`, removendo
+    os mais antigos. A ordem e definida pela data YYYY_MM_DD capturada no nome
+    do arquivo (grupo 1 do padrao) — independe do mtime do sistema de arquivos.
+
+    Idempotente. Arquivos que NAO casam o padrao (templates, artefatos
+    transacionais .partial/.bak) sao ignorados: nunca contados, nunca
+    removidos. Retorna a quantidade de arquivos removidos.
+
+    `rotulo` ("planilhas", "html", ...) identifica a pasta nos eventos emitidos.
+    """
+    if limite < 1 or not os.path.isdir(pasta):
+        return 0
+
+    datados: list[tuple[tuple[int, ...], str]] = []
+    for nome in os.listdir(pasta):
+        m = padrao.search(nome)
+        if m:
+            chave = tuple(int(p) for p in m.group(1).split("_"))
+            datados.append((chave, nome))
+
+    if len(datados) <= limite:
+        return 0
+
+    datados.sort(key=lambda item: item[0])   # mais antigo primeiro
+    excedentes = datados[:-limite]            # tudo, exceto os `limite` recentes
+
+    removidos = 0
+    for _, nome in excedentes:
+        try:
+            os.remove(os.path.join(pasta, nome))
+            removidos += 1
+        except OSError as e:
+            emit("warning", f"Falha ao remover backup antigo '{nome}': {e}",
+                 step="retencao.fail", data={"rotulo": rotulo})
+
+    if removidos:
+        emit("step",
+             f"Retencao ({rotulo}): {removidos} backup(s) antigo(s) removido(s); "
+             f"mantidos os {limite} mais recentes",
+             step="retencao.aplicada",
+             data={"rotulo": rotulo, "removidos": removidos, "limite": limite})
+    return removidos
 
 
 def buscar_emails_novos(config: configparser.ConfigParser) -> list:
@@ -638,8 +689,10 @@ def main() -> None:
         config_file = base_path / "config" / "config.ini"
     config = carregar_configuracoes(str(config_file))
 
-    # Bootstrap workspace
-    ws = ensure_workspace()
+    # Bootstrap workspace — a raiz de trabalho deriva do config.ini ([Paths]):
+    # planilhas/html/logs vivem todas sob uma pasta `data` comum.
+    data_root = os.path.dirname(config["Paths"]["pasta_logs"])
+    ws = ensure_workspace(data_root)
     emit(
         "info" if ws["already_existed"] else "success",
         "Estrutura de trabalho pronta" if ws["already_existed"]
@@ -701,6 +754,16 @@ def main() -> None:
 
     # R5: e-mails so sao marcados como lidos APOS o save bem-sucedido.
     marcar_emails_lidos(emails_processados)
+
+    # Retencao: limita planilhas e html a ~1 mes de backup (config [Retencao]).
+    # Roda apos o save bem-sucedido — a "copia n+1" dispara a remocao da mais
+    # antiga. So conta arquivos que casam o padrao de data (ignora .partial/.bak).
+    limite_backups = config.getint("Retencao", "max_arquivos",
+                                   fallback=LIMITE_BACKUPS_PADRAO)
+    limpar_backups_antigos(config["Paths"]["pasta_diario_excel"],
+                           BASE_FILENAME_PATTERN, limite_backups, "planilhas")
+    limpar_backups_antigos(config["Paths"]["pasta_destino_html"],
+                           HTML_FILENAME_PATTERN, limite_backups, "html")
 
     status = "warning" if pendencias else "ok"
     emit_result(status, caminho_salvo)

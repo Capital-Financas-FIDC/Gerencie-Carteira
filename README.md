@@ -88,6 +88,21 @@ npm run dist                        # installer NSIS (*) — opcional
 2. **Ativar Developer Mode no Windows** (`Configuracoes > Atualizacao e Seguranca > Para Desenvolvedores`) — permite symlinks sem admin, resolve o NSIS
 3. **Rodar PowerShell como Admin** antes do `npm run dist`
 
+> **Nota:** o instalador NSIS foi descontinuado como via de distribuição. A
+> distribuição oficial é via `publicar.ps1` (abaixo) — não exige admin nem NSIS.
+
+## Publicação na rede
+
+```powershell
+./publicar.ps1
+```
+
+Builda o app e **espelha** para `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Software\Aplicativo\`,
+de onde toda a equipe roda. O `.exe` é renomeado com a versão
+(`Gerencie Carteira X.Y.Z.exe`, derivada de `app/package.json`); o `robocopy /MIR`
+remove o build anterior — nunca há dois. O atalho de um clique fica em
+`A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Gerencie Carteira.cmd`.
+
 ## Testes
 
 ```bash

@@ -30,15 +30,17 @@
 - HOTFIX (post-v4.0.2): nome da pasta publica no `config.ini` estava sem acento (`GERENCIE CARTEIRA PUBLICA`); a pasta real no servidor e `GERENCIE CARTEIRA PÚBLICA`. `verify_public_path` retornava `accessible=False` em toda execucao -> etapa publica era pulada. Correcao em `config/config.ini` + docs.
 - MINOR v4.1.0: `atualizar_pivots(wb)` itera todas as PivotTables de todas as abas e chama `RefreshTable()` apos a colagem em E-Mail BD e antes da escrita transacional. Garante que a copia publica ja sai com as tabelas dinamicas atualizadas (gestor abre e consulta direto). Falha em uma pivot vira warning; ausencia de pivots emite info, sem quebrar o pipeline
 - PATCH v4.1.1: corrige mojibake no input de gerentes orfaos. No PyInstaller `--onefile`, `sys.stdin` em modo texto ignorava `PYTHONIOENCODING=utf-8` e caia em cp1252 -> "ADMINISTRAÇÃO" virava "ADMINISTRAÃ‡ÃƒO" na planilha. `input_bridge.request_input` agora le `sys.stdin.buffer` (bytes) e decodifica UTF-8 explicitamente; UnicodeDecodeError vira warning, nao derruba o stream
+- MINOR v4.2.0: retencao automatica de backups. `limpar_backups_antigos()` mantem no maximo N arquivos (config `[Retencao] max_arquivos`, default 30 ~ 1 mes) nas pastas `planilhas` e `html`, removendo os mais antigos pela data `YYYY_MM_DD` capturada no nome (ignora `.partial`/`.bak`/templates). Chamada em `main()` apos cada save bem-sucedido. No mesmo release, `test_input_bridge` foi corrigido — o stub de `sys.stdin` nao expunha `.buffer`, ficando defasado desde o v4.1.1
+- v4.2.0 (distribuicao): projeto migra para a pasta de rede. `config.ini` repontado para `...\GERENCIE CARTEIRA PÚBLICA\Software\data`; `ensure_workspace` passa a receber a raiz derivada do config. Novo `publicar.ps1` builda e espelha o app para `Software\Aplicativo` (robocopy `/MIR` remove o build antigo), com a versao no nome do `.exe`. Atalho `.cmd` com curinga na pasta-pai. Instalador NSIS abandonado (admin nao liberou Developer Mode/symlink)
 
-## Metricas Snapshot (2026-05-20)
+## Metricas Snapshot (2026-05-22)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.1.1 |
+| Versao atual | v4.2.0 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~30 (v1.0.0 → v4.1.1, agora linear no mesmo git) |
+| Releases historicas | ~31 (v1.0.0 → v4.2.0, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
-| Testes backend | passing (~6 suites pytest) |
+| Testes backend | passing (~7 suites pytest) |
 | Testes UI | inexistentes |
 | Historico git | disponivel — remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main` |
