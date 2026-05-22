@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 1.8 | Atualizado: 2026-05-22
+> Contexto para agentes AI. Versao: 1.9 | Atualizado: 2026-05-22
 
 ## IDENTIDADE
 
@@ -61,7 +61,7 @@ boot → config.loaded → workspace.bootstrap → outlook.fetch
 - **Fonte:** E-mails do Serasa no Outlook (assunto exato em `config.ini [Email]`)
 - **Entrada:** Anexos HTML com tabela (CNPJ, Razao Social, Alteracao)
 - **Saidas:** 2 planilhas `.xlsm` — diaria local (`\planilhas`) + copia publica em rede
-- **Workspace:** `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Software\data\{planilhas,html,logs}` — raiz derivada do `config.ini`, criada idempotentemente a cada run (`ensure_workspace`)
+- **Workspace:** `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Software\data\{planilhas,html,logs}` — raiz derivada do `config.ini`, criada idempotentemente a cada run (`ensure_workspace`); em dev (script nao empacotado) e redirecionada para `<repo>\data` (isola dev de producao)
 - **Pasta publica:** `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA` — rota de rede pre-existente, apenas VERIFICADA, nunca criada; se offline a etapa e pulada com warning
 - **PROCX:** aba de cadastro CNPJ->gerente em `config [Excel] sheet_procx` (default `PROCX GERENTES`), colunas `col_procx_gerente` (B) e `col_procx_cnpj` (C)
 - **Config:** `config.ini` define as pastas de trabalho na rede (lido com `interpolation=None`); `main.ts` tambem parseia o arquivo via regex para a whitelist do `shell.openPath`, a pasta local do dialog e a pasta publica do sweep
@@ -113,9 +113,9 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.0 — 22/05/2026)
+## ESTADO ATUAL (v4.2.1 — 22/05/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.0): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.0): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
@@ -136,4 +136,3 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `mai
 - Falha de `wb.save()` apos input do usuario perde o que foi digitado (e-mails seguem nao lidos → rerun re-solicita)
 - Sem testes de UI (Vitest) nem E2E real com Outlook; smoke E2E nao executado
 - `atualizar_planilha_excel()` cresceu (~7 responsabilidades), sem refatorar
-- Sem isolamento dev/prod: execucoes de teste locais gravam na mesma pasta `data` de producao na rede (`config.ini` fixo aponta para o share)

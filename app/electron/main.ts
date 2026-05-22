@@ -37,7 +37,15 @@ function resolveConfigPath(): string {
   return path.join(process.resourcesPath, "config", "config.ini");
 }
 
+// Em dev (nao empacotado) as pastas de trabalho ficam em <repo>/data — espelha
+// o redirecionamento do core Python (aplicar_pastas_dev) para que execucoes de
+// teste NAO toquem a pasta de producao na rede.
+function resolveDevDataRoot(): string {
+  return path.resolve(__dirname, "../../data");
+}
+
 function resolveLocalPlanilhasDir(): string {
+  if (isDev) return path.join(resolveDevDataRoot(), "planilhas");
   // Le do config; fallback para %USERPROFILE%\Documents\Gerencie_Carteira\planilhas
   try {
     const cfg = fs.readFileSync(resolveConfigPath(), "utf-8");
@@ -52,6 +60,7 @@ function resolveLocalPlanilhasDir(): string {
 }
 
 function resolvePublicDir(): string | null {
+  if (isDev) return path.join(resolveDevDataRoot(), "publica");
   try {
     const cfg = fs.readFileSync(resolveConfigPath(), "utf-8");
     const m = cfg.match(/^pasta_copia_excel\s*=\s*(.+)$/m);
@@ -122,6 +131,11 @@ function yesterdayDateStamp(): string {
 }
 
 function loadAllowedPathPrefixes(): void {
+  // Em dev tudo fica sob <repo>/data — a whitelist so precisa dessa raiz.
+  if (isDev) {
+    allowedPrefixes = [resolveDevDataRoot()];
+    return;
+  }
   // Whitelist simples para shell.openPath — apenas paths sob workspace do usuario
   // ou sob os diretorios declarados no config.ini
   const userWorkspace = path.join(

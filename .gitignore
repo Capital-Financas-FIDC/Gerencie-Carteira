@@ -28,6 +28,8 @@ venv/
 # ── Runtime / dados locais ─────────────────────────────────────────────
 log/
 *.log
+# Pasta de trabalho do modo dev (planilhas/html/logs/publica locais)
+data/
 
 # ── Windows / editores ─────────────────────────────────────────────────
 Thumbs.db

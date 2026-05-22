@@ -117,6 +117,9 @@ With the app hosted on the share, the `data` root is
 `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Software\data`. The public-copy folder
 `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA` (`pasta_copia_excel`) is **only verified,
 never created** — if offline, the publish step is skipped with a graceful warning.
+In dev (unpackaged), `carregar_configuracoes` (Python, `aplicar_pastas_dev`) and
+the `isDev` branches in `main.ts` redirect the work folders to `<repo>/data` so
+source-run test executions never touch production.
 
 Excel rules: workbooks **must** stay `.xlsm` (preserve VBA macros); the VLOOKUP
 formula in the verification column (`config [Excel] coluna_verificacao`, default

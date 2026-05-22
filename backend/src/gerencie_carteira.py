@@ -49,6 +49,24 @@ HTML_FILENAME_PATTERN = re.compile(r"Gerencie_Carteira_(\d{4}_\d{2}_\d{2})\.html
 LIMITE_BACKUPS_PADRAO = 30
 
 
+def aplicar_pastas_dev(config: configparser.ConfigParser) -> None:
+    """
+    Em modo dev (script NAO empacotado), redireciona as pastas de [Paths] para
+    uma pasta `data` local do repo — assim execucoes de teste nao gravam na
+    pasta de producao da rede. No app empacotado (frozen) e no-op: ele usa os
+    caminhos do config.ini.
+    """
+    if getattr(sys, "frozen", False):
+        return
+    dev_data = Path(__file__).resolve().parent.parent.parent / "data"
+    config["Paths"]["pasta_destino_html"] = str(dev_data / "html")
+    config["Paths"]["pasta_diario_excel"] = str(dev_data / "planilhas")
+    config["Paths"]["pasta_logs"] = str(dev_data / "logs")
+    config["Paths"]["pasta_copia_excel"] = str(dev_data / "publica")
+    emit("info", f"Modo dev: pastas de trabalho redirecionadas para {dev_data}",
+         step="config.dev")
+
+
 def carregar_configuracoes(caminho_config_file: str) -> configparser.ConfigParser:
     """Le config.ini com interpolation desabilitada (para preservar %USERPROFILE%)."""
     config = configparser.ConfigParser(interpolation=None)
@@ -82,6 +100,9 @@ def carregar_configuracoes(caminho_config_file: str) -> configparser.ConfigParse
                 "pasta_logs"):
         if config.has_option("Paths", key):
             config["Paths"][key] = os.path.expandvars(config["Paths"][key])
+
+    # Dev: redireciona as pastas de trabalho para o repo (isola dev de producao).
+    aplicar_pastas_dev(config)
 
     emit("info", "Configuracao carregada", step="config.loaded",
          data={"paths": dict(config["Paths"])})
