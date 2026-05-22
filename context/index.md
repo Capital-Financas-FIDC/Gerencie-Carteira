@@ -1,5 +1,5 @@
 # Context Index — Gerencie Carteira
-> Mapa de artefatos. Atualizado: 2026-05-18 (v1.1)
+> Mapa de artefatos. Atualizado: 2026-05-22 (v1.2)
 
 ## Navegacao Rapida
 
@@ -42,23 +42,24 @@ Nenhum artefato. (Historico em `plans/old/`.)
 ### Config / Build
 | Arquivo | Responsabilidade |
 |---------|------------------|
-| `config/config.ini` | Paths (`%USERPROFILE%`), aba/coluna do Excel, assunto do e-mail |
-| `app/package.json` | Scripts dev/build/dist, config electron-builder (NSIS) |
+| `config/config.ini` | Pastas de trabalho na rede, aba/coluna do Excel, assunto do e-mail, `[Retencao]` |
+| `app/package.json` | Versao (fonte unica SemVer), scripts dev/build, config electron-builder |
 | `backend/build_core.ps1` | PyInstaller → `app/resources/gerencie_carteira_core.exe` |
 | `build-app.ps1` | Build completo (raiz) → entrega o app em `./Aplicativo/` |
-| `Gerencie Carteira.cmd` | Atalho de um clique p/ `Aplicativo\Gerencie Carteira.exe` |
+| `publicar.ps1` | Build + espelha p/ `A:\...\Software` (deploy na rede); versao no nome do `.exe` |
+| `Gerencie Carteira.cmd` | Atalho de um clique p/ `Aplicativo\Gerencie Carteira.exe` (build local) |
 
 ## Testes
 
 | Camada | Diretorio | Status |
 |--------|-----------|--------|
-| Backend (unit) | `backend/tests/` | passing (log_emitter, directory_bootstrap, cascata_base) |
+| Backend (unit) | `backend/tests/` | passing |
 | UI / IPC | — | inexistente (Vitest planejado) |
 
 ## Documentacao Tecnica
 
 | Arquivo | Descricao |
 |---------|-----------|
-| `README.md` | Layout do projeto, comandos dev/build, caveat NSIS, protocolo JSON Lines |
+| `README.md` | Layout do projeto, comandos dev/build/deploy, protocolo JSON Lines |
 | `AGENTS.md` | Guia operacional para agentes + governanca de versionamento SemVer |
 | `CLAUDE.md` | Stub que delega integralmente para `AGENTS.md` |

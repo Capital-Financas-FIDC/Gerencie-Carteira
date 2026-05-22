@@ -19,7 +19,7 @@ Parsing:            BeautifulSoup4 (HTML do Serasa)
 Dados:              pandas (DataFrames)
 IPC:                child_process.spawn (Node); JSON Lines (stdout) + canal stdin (input UI->Python)
 Tema:               prefers-color-scheme (CSS vars)
-Build:              PyInstaller (core.exe) + electron-builder (NSIS / portable)
+Build:              PyInstaller (core.exe) + electron-builder (--dir); deploy via publicar.ps1
 Testes:             pytest (backend); UI sem testes automatizados
 Versionamento:      SemVer; fonte unica = app/package.json; repo unico
 ```
@@ -42,11 +42,11 @@ Serasa (email) → Outlook (COM) → Python core (script ou PyInstaller .exe)
 | Backend core | `backend/src/` | Pipeline Python (config → bootstrap → Outlook → parse → Excel) |
 | Protocolo | `backend/src/log_emitter.py` | Unica forma sancionada de output Python→UI |
 | Bootstrap | `backend/src/directory_bootstrap.py` | Workspace idempotente + verificacao de share |
-| Testes | `backend/tests/` | pytest: log_emitter, directory_bootstrap, cascata_base |
+| Testes | `backend/tests/` | Suites pytest do core Python (unit) |
 | Electron main | `app/electron/` | spawn, readline IPC, dialog, shell.openPath (whitelist) |
 | UI React | `app/src/` | Componentes, `useScriptRunner` (reducer de estado) |
-| Config | `config/config.ini` | Defaults universais via `%USERPROFILE%` |
-| Build | `backend/build_core.ps1`, `app/package.json` | PyInstaller + electron-builder |
+| Config | `config/config.ini` | Pastas de trabalho (rede), aba/coluna Excel, assunto do e-mail |
+| Build/Deploy | `build_core.ps1`, `build-app.ps1`, `publicar.ps1` | PyInstaller + electron-builder (--dir) + espelho na rede |
 
 Pipeline v3.0.1:
 
@@ -115,7 +115,7 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 
 ## ESTADO ATUAL (v4.2.1 — 22/05/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.0): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.1): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
@@ -127,7 +127,7 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `mai
 - Cascata da planilha base + auto-rerun via dialog Electron (exit 4) inalterada
 - Retencao automatica: `planilhas` e `html` limitadas a N arquivos (`config [Retencao] max_arquivos`, default 30 ~ 1 mes); os mais antigos sao removidos apos cada save
 - Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede; a equipe roda de la; `.exe` versionado, build antigo removido pelo `/MIR`
-- pytest passing (log_emitter, directory_bootstrap, cascata_base, gerentes_orfaos, rollback_transacional, input_bridge)
+- pytest passing (todas as suites do core Python)
 - Electron 33 + React 18 + Vite 5; tsc/Vite limpos
 
 **Dividas tecnicas:**
