@@ -98,9 +98,10 @@ npm run dist                        # installer NSIS (*) — opcional
 ```
 
 Builda o app e **espelha** para `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Software\Aplicativo\`,
-de onde toda a equipe roda. O `.exe` é renomeado com a versão
-(`Gerencie Carteira X.Y.Z.exe`, derivada de `app/package.json`); o `robocopy /MIR`
-remove o build anterior — nunca há dois. O atalho de um clique fica em
+de onde toda a equipe roda. O `robocopy /MIR` remove o build anterior — nunca
+há dois. O `.exe` principal preserva o nome neutro `Gerencie Carteira.exe`
+(renomear quebra a ASAR integrity do Electron 33 — crash no boot); a versão
+do app aparece na própria UI em runtime. O atalho de um clique fica em
 `A:\PUBLICA\GERENCIE CARTEIRA PÚBLICA\Gerencie Carteira.cmd`.
 
 ## Testes

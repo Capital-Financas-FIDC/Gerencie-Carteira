@@ -2,12 +2,12 @@
 # publicar.ps1 — Builda o app e publica na pasta de rede.
 #
 # Fluxo: build local (build-app.ps1 -> .\Aplicativo) -> espelha p/
-#        A:\...\Software\Aplicativo -> renomeia o .exe com a versao ->
-#        garante o atalho .cmd na pasta-pai.
+#        A:\...\Software\Aplicativo -> garante o atalho .cmd na pasta-pai.
 #
-# - O /MIR do robocopy remove o build anterior automaticamente: nunca ficam dois.
-# - A versao no nome do .exe e DERIVADA de app/package.json (fonte unica) —
-#   nao e hardcoded em lugar nenhum.
+# - O /MIR do robocopy remove o build anterior automaticamente.
+# - O .exe principal NAO e renomeado: Electron 33 quebra ASAR integrity
+#   (crash 0x80000003 no boot) quando o exe principal carrega outro nome.
+#   A versao do app continua visivel via `app:version` (IPC) na propria UI.
 # - NAO usa NSIS: dispensa privilegio de admin / criacao de symlink.
 #
 # Uso (PowerShell, na raiz do repo):
@@ -48,17 +48,12 @@ Write-Host "[4/5] Espelhando para $destAplicativo ..." -ForegroundColor Cyan
 robocopy $origem $destAplicativo /MIR /R:3 /W:3 /NFL /NDL /NJH /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy falhou (codigo $LASTEXITCODE)" }
 
-# Versao no nome do .exe distribuido (derivada da fonte unica).
-$exeNeutro = Join-Path $destAplicativo "Gerencie Carteira.exe"
-$exeVersao = "Gerencie Carteira $versao.exe"
-if (-not (Test-Path -LiteralPath $exeNeutro)) {
-    throw "Esperado '$exeNeutro' apos o espelhamento, mas nao foi encontrado."
-}
-try {
-    Rename-Item -LiteralPath $exeNeutro -NewName $exeVersao -Force
-} catch {
-    throw "Nao foi possivel renomear o .exe na rede para '$exeVersao'. " +
-          "Alguem pode estar com o app aberto. Detalhe: $_"
+# Verifica que o .exe principal chegou ao destino. NAO renomear:
+# Electron 33 quebra ASAR integrity (crash 0x80000003) quando o exe
+# principal recebe outro nome.
+$exePrincipal = Join-Path $destAplicativo "Gerencie Carteira.exe"
+if (-not (Test-Path -LiteralPath $exePrincipal)) {
+    throw "Esperado '$exePrincipal' apos o espelhamento, mas nao foi encontrado."
 }
 
 # [5/5] Atalho .cmd na pasta-pai. Escrito uma unica vez: usa curinga para achar
@@ -67,14 +62,8 @@ $cmdPath = Join-Path $pastaRede "Gerencie Carteira.cmd"
 if (-not (Test-Path -LiteralPath $cmdPath)) {
     $cmdConteudo = @'
 @echo off
-REM Atalho de um clique. Acha o .exe atual em Software\Aplicativo\
-REM (o nome carrega a versao; o curinga dispensa atualizar este arquivo).
-for %%f in ("%~dp0Software\Aplicativo\Gerencie Carteira*.exe") do (
-  start "" "%%~ff"
-  goto :eof
-)
-echo Nenhum executavel encontrado em Software\Aplicativo\
-pause
+REM Atalho de um clique para o app empacotado na rede.
+start "" "%~dp0Software\Aplicativo\Gerencie Carteira.exe"
 '@
     Set-Content -LiteralPath $cmdPath -Value $cmdConteudo -Encoding ascii
     Write-Host "[5/5] Atalho criado: $cmdPath" -ForegroundColor Green
@@ -83,4 +72,4 @@ pause
 }
 
 Write-Host ""
-Write-Host "OK -> publicado: $destAplicativo\$exeVersao" -ForegroundColor Green
+Write-Host "OK -> publicado v$versao em: $exePrincipal" -ForegroundColor Green

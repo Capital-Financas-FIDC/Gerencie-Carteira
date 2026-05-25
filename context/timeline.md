@@ -33,14 +33,15 @@
 - MINOR v4.2.0: retencao automatica de backups. `limpar_backups_antigos()` mantem no maximo N arquivos (config `[Retencao] max_arquivos`, default 30 ~ 1 mes) nas pastas `planilhas` e `html`, removendo os mais antigos pela data `YYYY_MM_DD` capturada no nome (ignora `.partial`/`.bak`/templates). Chamada em `main()` apos cada save bem-sucedido. No mesmo release, `test_input_bridge` foi corrigido — o stub de `sys.stdin` nao expunha `.buffer`, ficando defasado desde o v4.1.1
 - v4.2.0 (distribuicao): projeto migra para a pasta de rede. `config.ini` repontado para `...\GERENCIE CARTEIRA PÚBLICA\Software\data`; `ensure_workspace` passa a receber a raiz derivada do config. Novo `publicar.ps1` builda e espelha o app para `Software\Aplicativo` (robocopy `/MIR` remove o build antigo), com a versao no nome do `.exe`. Atalho `.cmd` com curinga na pasta-pai. Instalador NSIS abandonado (admin nao liberou Developer Mode/symlink)
 - PATCH v4.2.1: isolamento dev/producao. `aplicar_pastas_dev` (core Python) e os ramos `isDev` do `main.ts` redirecionam as pastas de trabalho para `<repo>\data` quando o app roda do codigo-fonte — execucoes de teste deixam de gravar na pasta de producao da rede. O app empacotado e inalterado (usa o `config.ini`)
+- PATCH v4.2.2: revertida a versao no nome do `.exe` distribuido. Electron 33 crasha (`0x80000003` / ASAR integrity) quando o exe principal e renomeado — confirmado no Event Viewer apos o primeiro deploy do v4.2.1 (`Application Error 1000`, "Gerencie Carteira 4.2.1.exe"). `publicar.ps1` agora preserva o nome neutro `Gerencie Carteira.exe`; a versao do app continua visivel via `app:version` na UI
 
-## Metricas Snapshot (2026-05-22)
+## Metricas Snapshot (2026-05-25)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.2.1 |
+| Versao atual | v4.2.2 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~32 (v1.0.0 → v4.2.1, agora linear no mesmo git) |
+| Releases historicas | ~33 (v1.0.0 → v4.2.2, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~8 suites pytest) |
 | Testes UI | inexistentes |

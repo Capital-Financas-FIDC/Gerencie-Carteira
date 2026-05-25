@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 1.9 | Atualizado: 2026-05-22
+> Contexto para agentes AI. Versao: 2.0 | Atualizado: 2026-05-25
 
 ## IDENTIDADE
 
@@ -113,9 +113,9 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.1 — 22/05/2026)
+## ESTADO ATUAL (v4.2.2 — 25/05/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.1): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.2): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
@@ -126,7 +126,7 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `mai
 - `UnRead=False` adiado para apos o save (janela de perda reduzida)
 - Cascata da planilha base + auto-rerun via dialog Electron (exit 4) inalterada
 - Retencao automatica: `planilhas` e `html` limitadas a N arquivos (`config [Retencao] max_arquivos`, default 30 ~ 1 mes); os mais antigos sao removidos apos cada save
-- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede; a equipe roda de la; `.exe` versionado, build antigo removido pelo `/MIR`
+- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede; a equipe roda de la; build antigo removido pelo `/MIR`; `.exe` mantem nome neutro (rename quebra ASAR integrity no Electron 33)
 - pytest passing (todas as suites do core Python)
 - Electron 33 + React 18 + Vite 5; tsc/Vite limpos
 
