@@ -4,6 +4,13 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 import fs from "node:fs";
 
+// Quando o app roda de uma unidade de rede (A:\PUBLICA\...), o sandbox do
+// processo GPU do Chromium falha em iniciar (`gpu_process_host: error_code=18`
+// -> apos 10 tentativas, FATAL "GPU process isn't usable. Goodbye" -> crash
+// 0x80000003 no boot). Desligar o sandbox SO do GPU resolve, sem precisar
+// abrir mao do sandbox dos demais processos.
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+
 const BASE_FILENAME_PATTERN = /^Gerencie Carteira_\d{4}_\d{2}_\d{2}\.xlsm$/;
 
 // --- Globals ---

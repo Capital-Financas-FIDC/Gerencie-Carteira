@@ -28,6 +28,13 @@ try {
     if (-not $?) { throw "npm run build falhou" }
 
     Write-Host "[3/4] electron-builder (pasta win-unpacked)..." -ForegroundColor Cyan
+    # Limpa win-unpacked ANTES: assim, se electron-builder falhar inteiro
+    # (ex: erro de schema), o Test-Path adiante falha e o script aborta —
+    # nao reusa silenciosamente um build velho.
+    $unpackedDir = "$root\build\dist-electron\win-unpacked"
+    if (Test-Path -LiteralPath $unpackedDir) {
+        Remove-Item -LiteralPath $unpackedDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
     # Erro de symlink winCodeSign e esperado e nao-fatal; ignorado aqui.
     try { npx electron-builder --win --x64 --dir } catch { }
 }

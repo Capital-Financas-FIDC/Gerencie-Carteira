@@ -113,9 +113,9 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.2 — 25/05/2026)
+## ESTADO ATUAL (v4.2.5 — 25/05/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.2): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.5): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`

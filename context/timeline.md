@@ -34,14 +34,15 @@
 - v4.2.0 (distribuicao): projeto migra para a pasta de rede. `config.ini` repontado para `...\GERENCIE CARTEIRA PÚBLICA\Software\data`; `ensure_workspace` passa a receber a raiz derivada do config. Novo `publicar.ps1` builda e espelha o app para `Software\Aplicativo` (robocopy `/MIR` remove o build antigo), com a versao no nome do `.exe`. Atalho `.cmd` com curinga na pasta-pai. Instalador NSIS abandonado (admin nao liberou Developer Mode/symlink)
 - PATCH v4.2.1: isolamento dev/producao. `aplicar_pastas_dev` (core Python) e os ramos `isDev` do `main.ts` redirecionam as pastas de trabalho para `<repo>\data` quando o app roda do codigo-fonte — execucoes de teste deixam de gravar na pasta de producao da rede. O app empacotado e inalterado (usa o `config.ini`)
 - PATCH v4.2.2: revertida a versao no nome do `.exe` distribuido. Electron 33 crasha (`0x80000003` / ASAR integrity) quando o exe principal e renomeado — confirmado no Event Viewer apos o primeiro deploy do v4.2.1 (`Application Error 1000`, "Gerencie Carteira 4.2.1.exe"). `publicar.ps1` agora preserva o nome neutro `Gerencie Carteira.exe`; a versao do app continua visivel via `app:version` na UI
+- PATCH v4.2.5: app rodando da rede crashava no boot com `0x80000003` (sintoma: "abre branco e fecha em ~1.5s"). Captura via `--enable-logging=stderr` mostrou `gpu_process_host: error_code=18` 10x seguidas e `FATAL: GPU process isn't usable. Goodbye` — o sandbox do GPU process do Chromium nao inicializa em network drive. Fix cirurgico em `app/electron/main.ts`: `app.commandLine.appendSwitch("disable-gpu-sandbox")` no topo (renderer/utility sandboxes permanecem ligados). Bonus: `build-app.ps1` ganhou limpeza do `win-unpacked` antes do `electron-builder` — o `try/catch` engolia falhas do builder e o `Test-Path` reusava silenciosamente o build velho, mascarando builds quebrados (descoberto quando uma tentativa de adicionar `electronFuses` ao `package.json` foi rejeitada pelo schema do electron-builder 25.1.8 mas o `publicar.ps1` reportou sucesso publicando o binario antigo). Bumps 4.2.3/4.2.4 foram iteracoes intermediarias de debugging sem mudanca efetiva no binario
 
 ## Metricas Snapshot (2026-05-25)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.2.2 |
+| Versao atual | v4.2.5 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~33 (v1.0.0 → v4.2.2, agora linear no mesmo git) |
+| Releases historicas | ~34 (v1.0.0 → v4.2.5, agora linear no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~8 suites pytest) |
 | Testes UI | inexistentes |
