@@ -3,6 +3,8 @@ node_modules/
 app/dist/
 app/dist-electron/
 app/.vite/
+# Logs PID-nomeados do Chromium quando se lanca o exe com --enable-logging
+/app/[0-9]*
 # tsc -b emite .js/.tsbuildinfo ao lado dos fontes .ts (Vite faz o bundle real)
 /app/**/*.js
 /app/tsconfig.tsbuildinfo
