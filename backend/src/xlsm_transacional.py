@@ -126,17 +126,34 @@ def promover(parcial: str, destino: str) -> str:
     return destino
 
 
-def limpar_publico_antigos(pasta_copia: str,
-                           glob_antigos: str = "Gerencie*.xls*") -> None:
+def limpar_publico_antigos(
+    pasta_copia: str,
+    glob_antigos: str = "Gerencie*.xls*",
+    *,
+    tentativas: int = 4,
+    intervalo: float = 0.5,
+) -> list[tuple[str, OSError]]:
     """
-    Remove os arquivos publicos antigos. Chamado SOMENTE depois que o novo
-    parcial ja existe (sem janela de destruicao) e o Excel ja fechou.
-    Nunca remove artefatos transacionais (.partial/.bak).
+    Remove os arquivos publicos antigos com retry curto. Retorna a lista de
+    (caminho, erro) das remocoes que falharam apos `tentativas` — o caller deve
+    emit warning para que a equipe veja (tipicamente a planilha esta aberta no
+    Excel de outro usuario). Nunca remove artefatos transacionais
+    (.partial/.bak).
     """
+    falhas: list[tuple[str, OSError]] = []
     for f in glob.glob(os.path.join(pasta_copia, glob_antigos)):
         if _eh_orfao(os.path.basename(f)):
             continue
-        try:
-            os.remove(f)
-        except OSError:
-            pass
+        ultimo: OSError | None = None
+        for i in range(tentativas):
+            try:
+                os.remove(f)
+                ultimo = None
+                break
+            except OSError as e:
+                ultimo = e
+                if i < tentativas - 1:
+                    time.sleep(intervalo * (1 + i * 0.25))
+        if ultimo is not None:
+            falhas.append((f, ultimo))
+    return falhas

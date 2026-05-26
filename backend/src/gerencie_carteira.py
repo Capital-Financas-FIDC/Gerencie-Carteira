@@ -632,6 +632,10 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         caminho_publico = os.path.join(pasta_copia, novo_nome)
         parcial_pub = None
         if public_acessivel:
+            # Sweep antecipado: melhor esforco. Se o usuario fechar a planilha
+            # antiga entre agora e a promocao, o sweep final ja nao precisa
+            # remover nada. Falhas aqui sao silenciosas — o sweep final emite.
+            limpar_publico_antigos(pasta_copia)
             try:
                 parcial_pub = escrever_parcial(wb, caminho_publico)
             except Exception as e:
@@ -672,7 +676,14 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
     elif parcial_pub is not None:
         emit("step", f"Atualizando pasta publica: {pasta_copia}", step="publico.copy")
         try:
-            limpar_publico_antigos(pasta_copia)
+            falhas_limpeza = limpar_publico_antigos(pasta_copia)
+            for caminho_falho, err in falhas_limpeza:
+                emit("warning",
+                     f"Nao consegui remover planilha antiga "
+                     f"'{os.path.basename(caminho_falho)}' (provavelmente aberta "
+                     f"em outro Excel): {err}",
+                     step="publico.cleanup.fail",
+                     data={"path": caminho_falho})
             promover(parcial_pub, caminho_publico)
             emit("info", f"Copia publica salva: {caminho_publico}", step="publico.saved",
                  data={"path": caminho_publico})

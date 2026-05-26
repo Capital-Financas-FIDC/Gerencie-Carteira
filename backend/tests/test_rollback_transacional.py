@@ -89,10 +89,36 @@ def test_publico_remove_antigos_apos_parcial(tmp_path):
     destino = str(tmp_path / "Gerencie Carteira_2026_05_18.xlsm")
     parcial = escrever_parcial(_FakeWB("pub"), destino)
     # parcial ja existe -> agora seguro remover os antigos e promover
-    limpar_publico_antigos(str(tmp_path))
+    falhas = limpar_publico_antigos(str(tmp_path))
+    assert falhas == []
     assert os.path.isfile(parcial)  # nao removido por limpar_publico_antigos
     promover(parcial, destino)
     nomes = _listar(tmp_path)
     assert "Gerencie Carteira_2026_05_17.xlsm" not in nomes
     assert "Gerencie Carteira_2026_05_18.xlsm" in nomes
     assert _sem_orfaos(nomes)
+
+
+def test_limpar_publico_falha_retorna_caminho(tmp_path, monkeypatch):
+    """Se os.remove falhar (planilha aberta em outro Excel), retorna a lista
+    de falhas para o caller emitir warning — nao engole silenciosamente."""
+    alvo = tmp_path / "Gerencie Carteira_2026_05_17.xlsm"
+    alvo.write_text("antigo")
+
+    import xlsm_transacional as xt
+    chamadas = []
+
+    def fake_remove(path):
+        chamadas.append(path)
+        raise PermissionError(32, "arquivo em uso")
+
+    monkeypatch.setattr(xt.os, "remove", fake_remove)
+
+    falhas = xt.limpar_publico_antigos(
+        str(tmp_path), tentativas=3, intervalo=0
+    )
+    assert len(falhas) == 1
+    caminho_falho, err = falhas[0]
+    assert os.path.basename(caminho_falho) == "Gerencie Carteira_2026_05_17.xlsm"
+    assert isinstance(err, PermissionError)
+    assert len(chamadas) == 3  # tentativas esgotadas
