@@ -36,6 +36,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $origem "Gerencie Carteira.exe"))) {
     throw "Build local nao encontrado em $origem"
 }
 
+# Marcador de versao: o launcher .cmd compara este arquivo (share) com a copia
+# local p/ decidir quando recopiar. Gravado em $origem ANTES do /MIR p/ a rede,
+# entao viaja junto no espelhamento (e e recopiado p/ o local pelo launcher).
+Set-Content -LiteralPath (Join-Path $origem "versao.txt") -Value $versao -Encoding ascii -NoNewline
+
 # [3/5] Verifica a rede
 if (-not (Test-Path -LiteralPath $pastaRede)) {
     throw "Pasta de rede inacessivel: $pastaRede"
@@ -56,20 +61,55 @@ if (-not (Test-Path -LiteralPath $exePrincipal)) {
     throw "Esperado '$exePrincipal' apos o espelhamento, mas nao foi encontrado."
 }
 
-# [5/5] Atalho .cmd na pasta-pai. Escrito uma unica vez: usa curinga para achar
-#       o .exe atual, entao nao precisa ser regerado a cada versao.
+# [5/5] Launcher .cmd na pasta-pai. Sobrescrito a cada publish (assim melhorias
+#       no launcher se propagam). Em vez de rodar o exe direto do share (~356 MB
+#       transmitidos + varredura de antivirus a CADA abertura), o launcher copia
+#       o app p/ %LOCALAPPDATA% UMA vez por versao e roda do disco local — as
+#       aberturas seguintes ficam instantaneas. O exe mantem o nome neutro
+#       (renomear quebra ASAR integrity no Electron 33).
 $cmdPath = Join-Path $pastaRede "Gerencie Carteira.cmd"
-if (-not (Test-Path -LiteralPath $cmdPath)) {
-    $cmdConteudo = @'
+$cmdConteudo = @'
 @echo off
-REM Atalho de um clique para o app empacotado na rede.
-start "" "%~dp0Software\Aplicativo\Gerencie Carteira.exe"
+setlocal enableextensions
+REM ============================================================
+REM Launcher Gerencie Carteira — roda do disco local p/ velocidade.
+REM Copia o app do share p/ %LOCALAPPDATA% apenas quando a versao muda;
+REM nas aberturas seguintes inicia direto do local (sem stream de rede).
+REM ============================================================
+set "SHARE=%~dp0Software\Aplicativo"
+set "LOCAL=%LOCALAPPDATA%\Gerencie Carteira\Aplicativo"
+set "EXE=Gerencie Carteira.exe"
+
+set "SVER="
+set "LVER="
+if exist "%SHARE%\versao.txt" set /p SVER=<"%SHARE%\versao.txt"
+if exist "%LOCAL%\versao.txt" set /p LVER=<"%LOCAL%\versao.txt"
+
+if not exist "%LOCAL%\%EXE%" goto copia
+if not "%SVER%"=="%LVER%" goto copia
+goto inicia
+
+:copia
+echo Preparando aplicativo local (versao %SVER%)... aguarde.
+robocopy "%SHARE%" "%LOCAL%" /MIR /R:3 /W:3 /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 (
+  echo Falha ao copiar do share; abrindo direto da rede...
+  start "" "%SHARE%\%EXE%"
+  goto fim
+)
+
+:inicia
+if not exist "%LOCAL%\%EXE%" (
+  start "" "%SHARE%\%EXE%"
+  goto fim
+)
+start "" "%LOCAL%\%EXE%"
+
+:fim
+endlocal
 '@
-    Set-Content -LiteralPath $cmdPath -Value $cmdConteudo -Encoding ascii
-    Write-Host "[5/5] Atalho criado: $cmdPath" -ForegroundColor Green
-} else {
-    Write-Host "[5/5] Atalho ja existe (mantido): $cmdPath" -ForegroundColor Yellow
-}
+Set-Content -LiteralPath $cmdPath -Value $cmdConteudo -Encoding ascii
+Write-Host "[5/5] Launcher (copia-para-local) gravado: $cmdPath" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "OK -> publicado v$versao em: $exePrincipal" -ForegroundColor Green
