@@ -500,6 +500,39 @@ def reinjetar_procx(wb, config: configparser.ConfigParser,
     return inseridos
 
 
+def recalcular_completo(app) -> None:
+    """
+    Forca um recalculo COMPLETO e espera o calculo assincrono terminar.
+
+    `app.calculate()` (Application.Calculate) so recalcula celulas sujas e NAO
+    reconstroi a arvore de dependencias. Apos uma mudanca ESTRUTURAL — ex.:
+    `ListRows.Add` no PROCX (reinjetar_procx) — as referencias estruturadas da
+    coluna de gerente em 'E-Mail BD' ficam transitoriamente sem resolver e
+    exibem `#NOME?` (#NAME?). Se `atualizar_pivots` rodar nesse instante, o
+    RefreshTable CONGELA esses `#NOME?` no cache da pivot (a fonte se auto-cura
+    no proximo recalculo, mas a pivot fica quebrada). `CalculateFullRebuild`
+    reconstroi a arvore inteira; `CalculateUntilAsyncQueriesDone` garante que
+    nenhum calculo assincrono fique pendente antes de seguir. Tudo guardado:
+    falhas aqui nao podem derrubar o pipeline.
+    """
+    try:
+        app.api.Calculation = -4105  # xlCalculationAutomatic
+    except Exception:
+        pass
+    try:
+        app.api.CalculateFullRebuild()
+    except Exception:
+        # Fallback: ao menos um calculo normal se o full rebuild nao existir
+        try:
+            app.calculate()
+        except Exception:
+            pass
+    try:
+        app.api.CalculateUntilAsyncQueriesDone()
+    except Exception:
+        pass
+
+
 def atualizar_pivots(wb) -> int:
     """
     Atualiza (RefreshTable) TODAS as PivotTables de todas as abas do workbook.
@@ -578,10 +611,10 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
             )
             mapping = resposta.get("mapping") or {}
             reinjetar_procx(wb, config, mapping)
-            try:
-                app.calculate()
-            except Exception:
-                pass
+            # ListRows.Add muda a Tabela PROCX estruturalmente: recalculo
+            # COMPLETO (nao basta Calculate) p/ as referencias estruturadas da
+            # coluna de gerente em 'E-Mail BD' nao ficarem em #NOME?.
+            recalcular_completo(app)
             time.sleep(1)
 
         # --- Colagem em E-Mail BD (logica preservada) ---
@@ -604,11 +637,10 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         emit("step", f"{len(df)} linhas inseridas", step="excel.insert",
              data={"count": int(len(df))})
 
-        # Forca recalculo antes de ler a coluna de verificacao (calc assincrono)
-        try:
-            app.calculate()
-        except Exception:
-            pass
+        # Recalculo COMPLETO antes de ler a coluna de verificacao E antes de
+        # atualizar as pivots — garante a fonte resolvida (sem #NOME? residual)
+        # antes do RefreshTable congelar o cache da pivot.
+        recalcular_completo(app)
         time.sleep(1)
 
         verificados = ws.range(
