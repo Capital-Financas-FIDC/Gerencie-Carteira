@@ -18,6 +18,7 @@ import re
 import shutil
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +27,7 @@ import win32com.client
 import xlwings as xw
 from bs4 import BeautifulSoup
 
-from log_emitter import emit, emit_result
+from log_emitter import emit, emit_result, reset_timer, get_timeline
 from directory_bootstrap import (
     ensure_workspace,
     verify_public_path,
@@ -249,16 +250,53 @@ def limpar_backups_antigos(pasta: str, padrao: re.Pattern, limite: int,
     return removidos
 
 
+def _eh_email_alvo(item: object, assunto: str) -> bool:
+    """
+    Retorna True se `item` e um MailItem nao lido com o assunto exato.
+    Guarda defensiva: itens nao-MailItem (MeetingRequest, etc.) nao tem
+    `.Subject` garantido — qualquer AttributeError e suprimido.
+    """
+    try:
+        return bool(item.Subject == assunto and item.UnRead)
+    except AttributeError:
+        return False
+
+
 def buscar_emails_novos(config: configparser.ConfigParser) -> list:
+    """
+    Retorna a lista de MailItems nao lidos com o assunto exato configurado.
+
+    Otimizacao (v4.2.8): usa `Items.Restrict("[Unread] = true")` para filtrar
+    server-side antes de iterar — o conjunto resultante e pequeno (apenas nao
+    lidos), eliminando a varredura O(N) sobre toda a caixa.
+
+    Fallback: se `Restrict` falhar (caixa delegada, versao antiga do Outlook,
+    etc.), cai silenciosamente na varredura completa original — semantica identica,
+    so muda a velocidade.
+    """
     assunto = config["Email"]["assunto_procurado"]
     emit("step", "Conectando ao Outlook", step="outlook.connect")
     outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
     inbox = outlook.GetDefaultFolder(6)
-    messages = inbox.Items
-    messages.Sort("[ReceivedTime]", False)
-    filtrados = [m for m in messages if m.Subject == assunto and m.UnRead]
-    emit("info", f"{len(filtrados)} email(s) nao lidos encontrados",
-         step="outlook.fetch", data={"count": len(filtrados)})
+    items = inbox.Items
+    items.Sort("[ReceivedTime]", False)
+
+    # Tenta Restrict server-side (filtra so nao-lidos; conjunto bem menor)
+    usando_restrict = False
+    try:
+        conjunto = items.Restrict("[Unread] = true")
+        usando_restrict = True
+    except Exception:
+        conjunto = items   # fallback: varredura completa original
+
+    filtrados = [m for m in conjunto if _eh_email_alvo(m, assunto)]
+
+    emit(
+        "info",
+        f"{len(filtrados)} email(s) nao lidos encontrados",
+        step="outlook.fetch",
+        data={"count": len(filtrados), "restrict": usando_restrict},
+    )
     return filtrados
 
 
@@ -761,8 +799,49 @@ def _resolver_versao(base_path: Path) -> str:
     return "dev"
 
 
+def _dump_timings(config: configparser.ConfigParser, versao: str) -> None:
+    """
+    Escreve timings_<run>.json em pasta_logs e emite perf.summary.
+    Best-effort: qualquer falha (share offline, permissao) e suprimida — nunca
+    derruba o pipeline. Chamada no finally de main().
+    """
+    try:
+        timeline = get_timeline()
+        if not timeline:
+            return
+        total_ms = timeline[-1]["t_ms"] if timeline else 0
+        pasta_logs = config["Paths"]["pasta_logs"]
+        ts_run = datetime.now().strftime("%Y%m%d_%H%M%S")
+        caminho = os.path.join(pasta_logs, f"timings_{ts_run}.json")
+        payload = {
+            "version": versao,
+            "total_ms": total_ms,
+            "steps": timeline,
+        }
+        try:
+            os.makedirs(pasta_logs, exist_ok=True)
+            with open(caminho, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # share offline ou sem permissao — silencioso
+
+        # top-3 etapas por dt_ms (delta individual)
+        top = sorted(timeline, key=lambda e: e["dt_ms"], reverse=True)[:3]
+        emit(
+            "info",
+            f"Execucao concluida em {total_ms} ms",
+            step="perf.summary",
+            data={"total_ms": total_ms, "top_steps": top},
+        )
+    except Exception:
+        pass  # nunca propaga
+
+
 def main() -> None:
     base_path = Path(__file__).resolve().parent if not getattr(sys, "frozen", False) else Path(sys.executable).resolve().parent
+
+    # Inicia o relogio de instrumentacao (antes do primeiro emit de etapa)
+    reset_timer()
 
     versao = _resolver_versao(base_path)
     emit("info", f"Iniciando Gerencie Carteira v{versao}", step="boot",
@@ -797,62 +876,67 @@ def main() -> None:
     # Logging pra arquivo
     configurar_logging(config)
 
-    # Verifica rota publica
-    pub = verify_public_path(config["Paths"]["pasta_copia_excel"])
-    if not pub["accessible"]:
-        emit("warning", f"Pasta publica nao acessivel: {pub['path']}",
-             step="publico.offline")
-
-    # Pipeline
-    emails = buscar_emails_novos(config)
-    if not emails:
-        emit("warning", "Nenhum email nao lido com o assunto especificado", step="outlook.empty")
-        emit_result("warning", None)
-        return
-
-    # IMPORTANTE: resolver a planilha base ANTES de extrair os anexos.
-    # extrair_dados_dos_anexos() marca os e-mails como lidos; se a cascata
-    # esgotasse depois disso (sys.exit EXIT_BASE_NEEDS_USER), o auto-rerun
-    # apos o usuario escolher a base nao acharia mais e-mails nao lidos e o
-    # dia de dados seria perdido silenciosamente. Resolvendo a base primeiro,
-    # um exit 4 ocorre sem consumir nenhum e-mail.
-    caminho_base = encontrar_arquivo_base_excel(config)
-
-    df, emails_processados = extrair_dados_dos_anexos(emails, config)
-    if df.empty:
-        emit("warning", "Nenhum dado valido extraido dos anexos", step="html.empty")
-        emit_result("warning", None)
-        return
-
     try:
-        caminho_salvo, pendencias = atualizar_planilha_excel(df, config, caminho_base)
-    except CancelExecucao:
-        # Fechamento/cancelamento durante a captura de gerentes orfaos.
-        # Nada foi gravado; e-mails continuam nao lidos -> reprocessaveis.
-        emit_result("warning", None)
-        return
-    except ProcxSheetMissing as e:
-        emit("error",
-             f"Aba PROCX '{e}' inexistente — impossivel reinjetar gerentes",
-             step="excel.procx.missing")
-        emit_result("error", None)
-        sys.exit(EXIT_PROCX_MISSING)
+        # Verifica rota publica
+        pub = verify_public_path(config["Paths"]["pasta_copia_excel"])
+        if not pub["accessible"]:
+            emit("warning", f"Pasta publica nao acessivel: {pub['path']}",
+                 step="publico.offline")
 
-    # R5: e-mails so sao marcados como lidos APOS o save bem-sucedido.
-    marcar_emails_lidos(emails_processados)
+        # Pipeline
+        emails = buscar_emails_novos(config)
+        if not emails:
+            emit("warning", "Nenhum email nao lido com o assunto especificado", step="outlook.empty")
+            emit_result("warning", None)
+            return
 
-    # Retencao: limita planilhas e html a ~1 mes de backup (config [Retencao]).
-    # Roda apos o save bem-sucedido — a "copia n+1" dispara a remocao da mais
-    # antiga. So conta arquivos que casam o padrao de data (ignora .partial/.bak).
-    limite_backups = config.getint("Retencao", "max_arquivos",
-                                   fallback=LIMITE_BACKUPS_PADRAO)
-    limpar_backups_antigos(config["Paths"]["pasta_diario_excel"],
-                           BASE_FILENAME_PATTERN, limite_backups, "planilhas")
-    limpar_backups_antigos(config["Paths"]["pasta_destino_html"],
-                           HTML_FILENAME_PATTERN, limite_backups, "html")
+        # IMPORTANTE: resolver a planilha base ANTES de extrair os anexos.
+        # extrair_dados_dos_anexos() marca os e-mails como lidos; se a cascata
+        # esgotasse depois disso (sys.exit EXIT_BASE_NEEDS_USER), o auto-rerun
+        # apos o usuario escolher a base nao acharia mais e-mails nao lidos e o
+        # dia de dados seria perdido silenciosamente. Resolvendo a base primeiro,
+        # um exit 4 ocorre sem consumir nenhum e-mail.
+        caminho_base = encontrar_arquivo_base_excel(config)
 
-    status = "warning" if pendencias else "ok"
-    emit_result(status, caminho_salvo)
+        df, emails_processados = extrair_dados_dos_anexos(emails, config)
+        if df.empty:
+            emit("warning", "Nenhum dado valido extraido dos anexos", step="html.empty")
+            emit_result("warning", None)
+            return
+
+        try:
+            caminho_salvo, pendencias = atualizar_planilha_excel(df, config, caminho_base)
+        except CancelExecucao:
+            # Fechamento/cancelamento durante a captura de gerentes orfaos.
+            # Nada foi gravado; e-mails continuam nao lidos -> reprocessaveis.
+            emit_result("warning", None)
+            return
+        except ProcxSheetMissing as e:
+            emit("error",
+                 f"Aba PROCX '{e}' inexistente — impossivel reinjetar gerentes",
+                 step="excel.procx.missing")
+            emit_result("error", None)
+            sys.exit(EXIT_PROCX_MISSING)
+
+        # R5: e-mails so sao marcados como lidos APOS o save bem-sucedido.
+        marcar_emails_lidos(emails_processados)
+
+        # Retencao: limita planilhas e html a ~1 mes de backup (config [Retencao]).
+        # Roda apos o save bem-sucedido — a "copia n+1" dispara a remocao da mais
+        # antiga. So conta arquivos que casam o padrao de data (ignora .partial/.bak).
+        limite_backups = config.getint("Retencao", "max_arquivos",
+                                       fallback=LIMITE_BACKUPS_PADRAO)
+        limpar_backups_antigos(config["Paths"]["pasta_diario_excel"],
+                               BASE_FILENAME_PATTERN, limite_backups, "planilhas")
+        limpar_backups_antigos(config["Paths"]["pasta_destino_html"],
+                               HTML_FILENAME_PATTERN, limite_backups, "html")
+
+        status = "warning" if pendencias else "ok"
+        emit_result(status, caminho_salvo)
+
+    finally:
+        # Best-effort: dump de timings ao fim do run (share offline nao derruba).
+        _dump_timings(config, versao)
 
 
 if __name__ == "__main__":
