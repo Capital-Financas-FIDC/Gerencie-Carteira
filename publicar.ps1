@@ -72,7 +72,7 @@ $cmdConteudo = @'
 @echo off
 setlocal enableextensions
 REM ============================================================
-REM Launcher Gerencie Carteira — roda do disco local p/ velocidade.
+REM Launcher Gerencie Carteira - roda do disco local p/ velocidade.
 REM Copia o app do share p/ %LOCALAPPDATA% apenas quando a versao muda;
 REM nas aberturas seguintes inicia direto do local (sem stream de rede).
 REM ============================================================
