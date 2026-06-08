@@ -560,29 +560,33 @@ def reinjetar_procx(wb, config: configparser.ConfigParser,
     return inseridos
 
 
-def recalcular_completo(app) -> None:
+def recalcular(app, *, full: bool) -> None:
     """
-    Forca um recalculo COMPLETO e espera o calculo assincrono terminar.
+    Recalcula o workbook e espera o calculo assincrono terminar.
 
-    `app.calculate()` (Application.Calculate) so recalcula celulas sujas e NAO
-    reconstroi a arvore de dependencias. Apos uma mudanca ESTRUTURAL — ex.:
-    `ListRows.Add` no PROCX (reinjetar_procx) — as referencias estruturadas da
-    coluna de gerente em 'E-Mail BD' ficam transitoriamente sem resolver e
-    exibem `#NOME?` (#NAME?). Se `atualizar_pivots` rodar nesse instante, o
-    RefreshTable CONGELA esses `#NOME?` no cache da pivot (a fonte se auto-cura
-    no proximo recalculo, mas a pivot fica quebrada). `CalculateFullRebuild`
-    reconstroi a arvore inteira; `CalculateUntilAsyncQueriesDone` garante que
-    nenhum calculo assincrono fique pendente antes de seguir. Tudo guardado:
-    falhas aqui nao podem derrubar o pipeline.
+    `full=True` -> `CalculateFullRebuild`: reconstroi a arvore de dependencias
+    INTEIRA. Necessario apos mudanca ESTRUTURAL (ex.: `ListRows.Add` no PROCX em
+    reinjetar_procx). Sem isso, as referencias estruturadas da coluna de gerente
+    em 'E-Mail BD' ficam transitoriamente em `#NOME?` e o `RefreshTable` CONGELA
+    esse erro no cache da pivot (a fonte se auto-cura no proximo recalculo, mas a
+    pivot fica quebrada).
+
+    `full=False` -> `Calculate` normal: suficiente quando so houve colagem de
+    dados (sem mudanca estrutural) e MUITO mais barato que o full rebuild — usado
+    no caso comum (dia sem orfaos).
+
+    Ambos forcam o calculo mesmo com a App em modo MANUAL (os metodos Calculate*
+    ignoram o modo de calculo). `CalculateUntilAsyncQueriesDone` garante que
+    nenhum calculo assincrono fique pendente. Tudo guardado: falhas de COM nao
+    derrubam o pipeline.
     """
     try:
-        app.api.Calculation = -4105  # xlCalculationAutomatic
+        if full:
+            app.api.CalculateFullRebuild()
+        else:
+            app.calculate()
     except Exception:
-        pass
-    try:
-        app.api.CalculateFullRebuild()
-    except Exception:
-        # Fallback: ao menos um calculo normal se o full rebuild nao existir
+        # Fallback: ao menos um calculo normal
         try:
             app.calculate()
         except Exception:
@@ -656,13 +660,30 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
     pendencias = False
     try:
         app = xw.App(visible=False, add_book=False)
+        # Modo MANUAL durante a automacao: evita o recalculo automatico pesado no
+        # open e a cada edicao (XLOOKUP de matriz + MINIFS/MAXIFS sobre a base que
+        # cresce). Recalculamos explicitamente via recalcular() quando precisamos
+        # de valores; restauramos AUTOMATICO antes de salvar (a copia publica deve
+        # abrir recalculando p/ o gestor).
+        try:
+            app.api.Calculation = -4135  # xlCalculationManual
+        except Exception:
+            pass
+        emit("info", "Excel iniciado", step="excel.app")
         wb = app.books.open(caminho_base_excel)
+        try:
+            app.api.Calculation = -4135  # reassegura apos o open (o wb pode repor)
+        except Exception:
+            pass
+        emit("info", f"Workbook aberto: {os.path.basename(caminho_base_excel)}",
+             step="excel.workbook.opened")
         time.sleep(1)
 
         # --- PROCX: mapa, orfaos e captura em runtime (ANTES de qualquer save
         #     e ANTES de marcar e-mails lidos — R5) ---
         mapa = ler_mapa_procx(wb, config)        # ProcxSheetMissing se ausente
         orfaos = detectar_orfaos(df, mapa)
+        houve_reinjecao = False
         if orfaos:
             resposta = request_input(
                 "input.gerentes.needed",
@@ -670,12 +691,11 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
                 msg=f"Informe o gerente de {len(orfaos)} CNPJ(s) sem cadastro",
             )
             mapping = resposta.get("mapping") or {}
-            reinjetar_procx(wb, config, mapping)
-            # ListRows.Add muda a Tabela PROCX estruturalmente: recalculo
-            # COMPLETO (nao basta Calculate) p/ as referencias estruturadas da
-            # coluna de gerente em 'E-Mail BD' nao ficarem em #NOME?.
-            recalcular_completo(app)
-            time.sleep(1)
+            # `ListRows.Add` muda a Tabela PROCX estruturalmente -> exige full
+            # rebuild adiante (senao #NOME? na pivot). O recalculo NAO e feito
+            # aqui: o recalculo unico antes das pivots (condicional) ja cobre,
+            # depois da colagem — evita um rebuild a mais.
+            houve_reinjecao = reinjetar_procx(wb, config, mapping) > 0
 
         # --- Colagem em E-Mail BD (logica preservada) ---
         ws = wb.sheets[nome_planilha]
@@ -697,11 +717,11 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         emit("step", f"{len(df)} linhas inseridas", step="excel.insert",
              data={"count": int(len(df))})
 
-        # Recalculo COMPLETO antes de ler a coluna de verificacao E antes de
-        # atualizar as pivots — garante a fonte resolvida (sem #NOME? residual)
-        # antes do RefreshTable congelar o cache da pivot.
-        recalcular_completo(app)
-        time.sleep(1)
+        # Recalculo unico antes de ler a coluna de verificacao E das pivots.
+        # Full rebuild SO quando houve reinjecao de orfaos (mudanca estrutural na
+        # Tabela PROCX -> evita #NOME? no cache da pivot). No caso comum (sem
+        # orfaos) um Calculate normal basta e e bem mais barato.
+        recalcular(app, full=houve_reinjecao)
 
         verificados = ws.range(
             f"{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}"
@@ -714,6 +734,14 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         # Atualiza tabelas dinamicas com os dados ja recalculados.
         # Roda ANTES do save local p/ que a copia publica saia ja atualizada.
         atualizar_pivots(wb)
+
+        # Restaura AUTOMATICO antes de salvar: a copia publica DEVE abrir
+        # recalculando p/ o gestor. Os valores ja estao computados (recalcular
+        # acima), entao isto e um no-op barato — so persiste o modo no arquivo.
+        try:
+            app.api.Calculation = -4105  # xlCalculationAutomatic
+        except Exception:
+            pass
 
         # --- Fase 1: escreve os parciais com o Excel AINDA ABERTO ---
         # (a promocao/rename so e possivel apos o Excel liberar o lock)
