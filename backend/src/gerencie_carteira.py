@@ -464,9 +464,31 @@ def reinjetar_procx(wb, config: configparser.ConfigParser,
     lo = _obter_tabela_procx(ws, config)
 
     if lo is not None:
+        try:
+            n_cols = int(lo.ListColumns.Count)
+        except Exception:
+            n_cols = max(idx_ger, idx_cnpj)
         for cnpj, gerente in mapping.items():
             nova = lo.ListRows.Add()  # ao final; expande a Tabela
             linha = int(nova.Range.Row)
+            # `ListRows.Add` so autopreenche colunas REGISTRADAS como "coluna
+            # calculada" do ListObject. Colunas com formula que perderam esse
+            # status (ex.: A=XLOOKUP de matriz, D=CNPJ Numeros, E=Raiz CNPJ)
+            # ficam vazias. Replicamos a formula da linha anterior via
+            # Range.Copy (ajusta refs relativas e preserva formula de matriz)
+            # em todas as colunas com formula, exceto as de input (gerente/CNPJ).
+            prev = linha - 1
+            if prev >= 1:
+                for c in range(1, n_cols + 1):
+                    if c in (idx_ger, idx_cnpj):
+                        continue
+                    src = ws.range((prev, c))
+                    try:
+                        tem_formula = str(src.formula).startswith("=")
+                    except Exception:
+                        tem_formula = False
+                    if tem_formula:
+                        src.copy(ws.range((linha, c)))
             ws.range((linha, idx_ger)).value = gerente
             ws.range((linha, idx_cnpj)).value = cnpj
             inseridos += 1
