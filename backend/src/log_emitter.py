@@ -14,12 +14,42 @@ Formato de evento:
       "progress": 42,                        # opcional (0..100)
       "data":  { ... }                       # opcional
     }
+
+Timeline em memoria (instrumentacao de performance):
+    reset_timer()   — zera o relogio e a lista interna (chamar no boot de main())
+    get_timeline()  — retorna copia da lista de eventos com timing
+    emit(step=...)  — quando step != None, agrega {step, msg, t_ms, dt_ms} na lista
+
+    A timeline nao altera o contrato JSON Lines: o stdout continua recebendo
+    exatamente 1 linha JSON valida por emit(), sem campos extras. O registro de
+    timing e puramente em memoria — nenhuma I/O adicional por evento.
 """
 
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+# ---------------------------------------------------------------------------
+# Estado interno de timeline (modulo-level; reinicializado por reset_timer)
+# ---------------------------------------------------------------------------
+_t0: Optional[float] = None       # monotonic no boot (reset_timer)
+_t_prev: Optional[float] = None   # monotonic do emit anterior
+_TIMELINE: list[dict[str, Any]] = []  # [{step, msg, t_ms, dt_ms}, ...]
+
+
+def reset_timer() -> None:
+    """Zera o relogio monotonic e a timeline em memoria. Chamar no boot de main()."""
+    global _t0, _t_prev, _TIMELINE
+    _t0 = time.monotonic()
+    _t_prev = _t0
+    _TIMELINE = []
+
+
+def get_timeline() -> list[dict[str, Any]]:
+    """Retorna copia da timeline acumulada (lista de dicts, ordem de insercao)."""
+    return list(_TIMELINE)
 
 
 def _now_iso() -> str:
@@ -35,7 +65,26 @@ def emit(
     progress: Optional[int] = None,
     data: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Emite 1 evento JSON em stdout (1 linha, flush imediato)."""
+    """Emite 1 evento JSON em stdout (1 linha, flush imediato).
+
+    Quando `step` nao e None, agrega timing em memoria na _TIMELINE:
+      t_ms  = ms desde o reset_timer() (ou 0 se timer nao foi inicializado)
+      dt_ms = ms desde o emit anterior com step (idem)
+    O JSON emitido em stdout NAO e alterado — contrato intacto.
+    """
+    global _t_prev
+
+    # --- Registro de timing em memoria (sem I/O) ---
+    if step is not None:
+        now = time.monotonic()
+        t0_ref = _t0 if _t0 is not None else now
+        t_prev_ref = _t_prev if _t_prev is not None else now
+        t_ms = round((now - t0_ref) * 1000)
+        dt_ms = round((now - t_prev_ref) * 1000)
+        _TIMELINE.append({"step": step, "msg": msg, "t_ms": t_ms, "dt_ms": dt_ms})
+        _t_prev = now
+
+    # --- Emissao JSON Lines (contrato intacto) ---
     payload: dict[str, Any] = {"level": level, "ts": _now_iso(), "msg": msg}
     if step is not None:
         payload["step"] = step
