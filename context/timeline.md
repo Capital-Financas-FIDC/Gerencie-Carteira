@@ -14,7 +14,7 @@
 - Empacotamento via PyInstaller; v2.14.1 consolidada como release operacional estavel
 - v2.14.1 mantida intocada como fallback paralelo ao migrar para v3
 
-## Fase 2: Migracao Electron (v3.0.0 → v4.2.5) — atual
+## Fase 2: Migracao Electron + correcao/performance (v3.0.0 → v4.2.10) — atual
 
 - MAJOR v3.0.0: CLI Rich substituida por protocolo JSON Lines (stdout) consumido por shell Electron + React
 - Bootstrap idempotente do workspace `%USERPROFILE%\Documents\Gerencie_Carteira\`; defaults universais via `%USERPROFILE%`
@@ -37,14 +37,21 @@
 - PATCH v4.2.6: `limpar_publico_antigos` engolia `OSError` silenciosamente — quando algum gestor estava com a planilha publica antiga aberta no Excel, o `os.remove` falhava sem deixar rastro e a planilha do dia anterior ficava ao lado da nova (acumulo na pasta publica, que deve ter no maximo uma). Agora a funcao faz retry curto (4 tentativas com backoff) e retorna a lista de falhas; o caller emite `publico.cleanup.fail` (warning) por arquivo nao removido. Adicionado tambem um sweep antecipado antes de salvar o parcial publico (best-effort, falhas silenciosas) — segunda janela caso o usuario feche a planilha entre o inicio do pipeline e a promocao. Novo teste cobre o retorno de falhas
 - PATCH v4.2.5: app rodando da rede crashava no boot com `0x80000003` (sintoma: "abre branco e fecha em ~1.5s"). Captura via `--enable-logging=stderr` mostrou `gpu_process_host: error_code=18` 10x seguidas e `FATAL: GPU process isn't usable. Goodbye` — o sandbox do GPU process do Chromium nao inicializa em network drive. Fix cirurgico em `app/electron/main.ts`: `app.commandLine.appendSwitch("disable-gpu-sandbox")` no topo (renderer/utility sandboxes permanecem ligados). Bonus: `build-app.ps1` ganhou limpeza do `win-unpacked` antes do `electron-builder` — o `try/catch` engolia falhas do builder e o `Test-Path` reusava silenciosamente o build velho, mascarando builds quebrados (descoberto quando uma tentativa de adicionar `electronFuses` ao `package.json` foi rejeitada pelo schema do electron-builder 25.1.8 mas o `publicar.ps1` reportou sucesso publicando o binario antigo). Bumps 4.2.3/4.2.4 foram iteracoes intermediarias de debugging sem mudanca efetiva no binario
 
-## Metricas Snapshot (2026-05-25)
+- PATCH v4.2.7: pivot toda `#NOME?` com orfaos — apos `ListRows.Add` o `Calculate` nao reconstruia a arvore e o `RefreshTable` congelava o erro; fix forca `CalculateFullRebuild` antes das pivots
+- PATCH v4.2.7: reinjecao no PROCX passa a preencher colunas de FORMULA (A/D/E) replicando a linha anterior via `Range.Copy` (`ListRows.Add` so autopreenche colunas calculadas registradas)
+- MINOR v4.2.8: fetch do Outlook troca a varredura O(N) da Inbox por `Items.Restrict` (filtro server-side) — gargalo dos "15 min" em caixa grande/compartilhada; fallback p/ varredura antiga
+- MINOR v4.2.8: instrumentacao de tempo por etapa (`timings_<run>.json`); launcher `.cmd` copia o app p/ `%LOCALAPPDATA%` e roda local, recopiando so quando `versao.txt` muda (evita stream pela rede a cada uso)
+- PATCH v4.2.9: calculo MANUAL na automacao (open/edicoes mais rapidos) + `recalcular(full=...)` — full rebuild SO com orfaos, senao Calculate normal; restaura AUTOMATICO antes de salvar (copia publica recalcula p/ o gestor)
+- PATCH v4.2.10: corrige regressao da v4.2.9 — o rebuild condicional deixava todo dia SEM orfao com a pivot inteira em `#NOME?`. A coluna Gerente usa XLOOKUP (`_xlfn.XLOOKUP`) copiada p/ linhas novas a cada run; `app.calculate()` normal nao religa o token -> `#NOME?` congelado no cache da pivot. `recalcular(app, full=True)` volta a ser incondicional. Diagnostico por forense cruzada das planilhas 06/06 (full rebuild, limpa) vs 06/09 (calculate, 30x `#NAME?`) + timings
+
+## Metricas Snapshot (2026-06-09)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.2.6 |
+| Versao atual | v4.2.10 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~34 (v1.0.0 → v4.2.5, agora linear no mesmo git) |
+| Releases historicas | ~38 (v1.0.0 → v4.2.10, lineares no mesmo git) |
 | Linguagens | Python (core), TypeScript/React (UI) |
-| Testes backend | passing (~8 suites pytest) |
+| Testes backend | passing (~10 suites pytest) |
 | Testes UI | inexistentes |
-| Historico git | disponivel — remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main` |
+| Historico git | remote `Capital-Financas-FIDC/Gerencie-Carteira`; trabalho recente na branch `fix/Consertando-Planilha` (sem merge em `main`) |

@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 2.0 | Atualizado: 2026-05-25
+> Contexto para agentes AI. Versao: 2.0 | Atualizado: 2026-06-09
 
 ## IDENTIDADE
 
@@ -101,7 +101,8 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Chamada em `main()` apos o save bem-sucedido (fora de `atualizar_planilha_excel`, que ja esta sobrecarregada)
 
 ### Planilhas Excel / escrita transacional
-- Arquivos DEVEM ser `.xlsm` (preservar macros VBA); `app.calculate()` forcado antes de ler a coluna de verificacao
+- Arquivos DEVEM ser `.xlsm` (preservar macros VBA). A App roda em calculo MANUAL durante a automacao (open/edicoes mais rapidos); restaurar AUTOMATICO antes de salvar — a copia publica deve abrir recalculando p/ o gestor
+- `recalcular(app, full=True)` (CalculateFullRebuild) roda SEMPRE antes de ler a verificacao e antes das pivots. A coluna de verificacao (Gerente) usa XLOOKUP — gravada no `.xlsm` como future-function `_xlfn.XLOOKUP` e copiada p/ as linhas novas a CADA run; um `app.calculate()` normal NAO religa esse token nas celulas recem-copiadas → ficam `#NOME?` e o `RefreshTable` congela o erro no cache da pivot. So o full rebuild re-parseia e resolve (a funcao `recalcular` ainda aceita `full=False`, nao usado no pipeline)
 - Formula VLOOKUP da coluna de verificacao (`config [Excel] coluna_verificacao`, default `E`) copiada da linha anterior (evita `#REF`)
 - Base nunca sobrescrita in-place (zero-copy backup). Duas fases (o Excel mantem lock enquanto aberto): `escrever_parcial(wb, destino)` salva `<dest>.partial.<ext>` com o Excel ABERTO; `promover(parcial, destino)` faz `os.replace` (com retry) SO apos `wb.close()`/`app.quit()`. Colisao usa `<dest>.bak.<ext>`
 - Publico: `escrever_parcial` (Excel aberto) → fecha → `limpar_publico_antigos()` remove `Gerencie*.xls*` → `promover()` (sem janela de destruicao)
@@ -113,20 +114,23 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.6 — 25/05/2026)
+## ESTADO ATUAL (v4.2.10 — 09/06/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `main`), SemVer com fonte unica `app/package.json`. **Linha v4** (atual: v4.2.5): captura de gerentes orfaos em runtime + escrita transacional (MAJOR v4.0.0), refresh automatico de tabelas dinamicas antes do save (MINOR v4.1.0) e retencao automatica de backups (MINOR v4.2.0); migracao para a pasta de rede + isolamento dev/prod (v4.2.0/v4.2.1). Patches v4.0.1/v4.0.2 estabilizaram a escrita transacional e a reinjecao via Tabela; hotfix corrigiu o acento ausente na pasta publica (`PÚBLICA`).
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com fonte unica `app/package.json`. **Linha v4** madura: captura de orfaos em runtime + escrita transacional zero-copy, refresh de pivots, retencao de backups e distribuicao pela pasta de rede. Fase recente foca em correcao e performance (v4.2.7–v4.2.10): pivot `#NOME?`/PROCX, fetch do Outlook via `Restrict`, instrumentacao de timing, launcher copia-para-local, calculo manual e full rebuild incondicional. **Trabalho recente vive na branch `fix/Consertando-Planilha` (v4.2.10 publicada; ainda sem merge em `main`).**
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
 - Canal stdin bidirecional (`input_bridge`); DIRECIONA totalmente removido (codigo + config)
 - Escrita transacional zero-copy em duas fases (`escrever_parcial` + `promover` apos fechar o Excel); base nunca sobrescrita in-place
-- Refresh automatico de TODAS as PivotTables do workbook apos a colagem e antes do save (`atualizar_pivots`) — copia publica sai ja atualizada p/ consulta direta
+- Refresh automatico de TODAS as PivotTables apos a colagem e antes do save (`atualizar_pivots`); a copia publica sai ja atualizada. Pivot `#NOME?` resolvida por `CalculateFullRebuild` incondicional antes do refresh — o XLOOKUP da coluna Gerente exige re-parse a cada run (ver REGRAS)
+- Reinjecao de orfaos no PROCX preenche tambem as colunas de FORMULA (Razao Social/CNPJ Numeros/Raiz) replicando a linha anterior — `ListRows.Add` so autopreenche colunas calculadas registradas
+- Fetch do Outlook via `Items.Restrict` (filtro server-side por nao-lido) — antes era varredura O(N) da Inbox (lento em caixa grande/compartilhada); fallback p/ varredura se o Restrict falhar
+- Instrumentacao de tempo por etapa: `log_emitter` mantem timeline em memoria e cada run grava `timings_<run>.json` em `data/logs` (best-effort)
 - Confirmacao SIM/NAO ao fechar em runtime + sweep de `.partial`/`.bak` no supervisor (boot/fechamento)
 - `UnRead=False` adiado para apos o save (janela de perda reduzida)
 - Cascata da planilha base + auto-rerun via dialog Electron (exit 4) inalterada
 - Retencao automatica: `planilhas` e `html` limitadas a N arquivos (`config [Retencao] max_arquivos`, default 30 ~ 1 mes); os mais antigos sao removidos apos cada save
-- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede; a equipe roda de la; build antigo removido pelo `/MIR`; `.exe` mantem nome neutro (rename quebra ASAR integrity no Electron 33)
+- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede + marcador `versao.txt`; `.exe` mantem nome neutro (rename quebra ASAR integrity no Electron 33). O `.cmd` na pasta-pai e um launcher copia-para-local: copia o app p/ `%LOCALAPPDATA%` UMA vez por versao (compara `versao.txt`) e roda do disco local — abre instantaneo, sem stream de rede a cada uso
 - pytest passing (todas as suites do core Python)
 - Electron 33 + React 18 + Vite 5; tsc/Vite limpos
 
@@ -136,3 +140,4 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`, branch `mai
 - Falha de `wb.save()` apos input do usuario perde o que foi digitado (e-mails seguem nao lidos → rerun re-solicita)
 - Sem testes de UI (Vitest) nem E2E real com Outlook; smoke E2E nao executado
 - `atualizar_planilha_excel()` cresceu (~7 responsabilidades), sem refatorar
+- O fix do `#NOME?` (v4.2.10, full rebuild incondicional) foi diagnosticado por forense cruzada das planilhas + timings e coberto por testes unitarios (COM mockado), mas o caminho real Excel/COM nao tem teste de integracao — confirmar na proxima rodada da mesa via `timings_<run>.json` + pivot limpa num dia SEM orfao

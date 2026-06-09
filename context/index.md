@@ -1,5 +1,5 @@
 # Context Index — Gerencie Carteira
-> Mapa de artefatos. Atualizado: 2026-05-22 (v1.2)
+> Mapa de artefatos. Atualizado: 2026-06-08 (v1.3)
 
 ## Navegacao Rapida
 
@@ -20,7 +20,9 @@ Nenhum artefato. (Historico em `context/analysis/old/`.)
 Nenhum artefato.
 
 ### Plans — plans/
-Nenhum artefato. (Historico em `plans/old/`.)
+| Arquivo | Data | Descricao | Status |
+|---------|------|-----------|--------|
+| `2026-06-08_Plan_Performance_Fase1.md` | 2026-06-08 | Fase de performance: instrumentacao + Outlook Restrict (Fases 1-3 = v4.2.8); Fase 4 (calculo manual/rebuild condicional = v4.2.9) e Fase 5 (launcher local) | Fases 1-5 implementadas; aguarda validacao na mesa |
 
 ## Arquivos Criticos
 
