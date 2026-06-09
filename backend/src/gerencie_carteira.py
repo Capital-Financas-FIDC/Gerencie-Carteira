@@ -683,7 +683,6 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
         #     e ANTES de marcar e-mails lidos — R5) ---
         mapa = ler_mapa_procx(wb, config)        # ProcxSheetMissing se ausente
         orfaos = detectar_orfaos(df, mapa)
-        houve_reinjecao = False
         if orfaos:
             resposta = request_input(
                 "input.gerentes.needed",
@@ -691,11 +690,10 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
                 msg=f"Informe o gerente de {len(orfaos)} CNPJ(s) sem cadastro",
             )
             mapping = resposta.get("mapping") or {}
-            # `ListRows.Add` muda a Tabela PROCX estruturalmente -> exige full
-            # rebuild adiante (senao #NOME? na pivot). O recalculo NAO e feito
-            # aqui: o recalculo unico antes das pivots (condicional) ja cobre,
-            # depois da colagem — evita um rebuild a mais.
-            houve_reinjecao = reinjetar_procx(wb, config, mapping) > 0
+            # O recalculo NAO e feito aqui: o full rebuild unico antes das pivots
+            # (depois da colagem) ja cobre tanto a reinjecao no PROCX quanto a
+            # copia da coluna de verificacao — evita um rebuild a mais.
+            reinjetar_procx(wb, config, mapping)
 
         # --- Colagem em E-Mail BD (logica preservada) ---
         ws = wb.sheets[nome_planilha]
@@ -718,10 +716,14 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
              data={"count": int(len(df))})
 
         # Recalculo unico antes de ler a coluna de verificacao E das pivots.
-        # Full rebuild SO quando houve reinjecao de orfaos (mudanca estrutural na
-        # Tabela PROCX -> evita #NOME? no cache da pivot). No caso comum (sem
-        # orfaos) um Calculate normal basta e e bem mais barato.
-        recalcular(app, full=houve_reinjecao)
+        # SEMPRE full rebuild: a coluna de verificacao (Gerente) e copiada para as
+        # linhas novas a CADA run e usa a future-function XLOOKUP, gravada no
+        # arquivo como `_xlfn.XLOOKUP`. Um `app.calculate()` normal NAO religa esse
+        # token nas celulas recem-copiadas -> elas ficam `#NOME?` e o `RefreshTable`
+        # congela o erro no cache da pivot. So `CalculateFullRebuild` re-parseia e
+        # resolve o XLOOKUP. (Regressao v4.2.9: o rebuild condicional — so com
+        # orfaos — deixava todo dia SEM orfao com a pivot inteira em `#NOME?`.)
+        recalcular(app, full=True)
 
         verificados = ws.range(
             f"{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}"

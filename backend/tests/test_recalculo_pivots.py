@@ -1,11 +1,15 @@
-"""Recalculo do workbook: full rebuild (orfaos) vs Calculate normal (comum).
+"""Recalculo do workbook: full rebuild vs Calculate normal.
 
 v4.2.7: o full rebuild antes do RefreshTable evita que a pivot congele #NOME?
 apos `ListRows.Add` (mudanca estrutural no PROCX).
-v4.2.9: `recalcular(app, full=...)` torna o full rebuild CONDICIONAL — so quando
-houve reinjecao de orfaos; no caso comum um Calculate normal basta (bem mais
-barato). A App roda em modo manual, e os metodos Calculate* forcam o calculo
-mesmo assim.
+v4.2.9: tornou o full rebuild CONDICIONAL (so com orfaos) — REGRESSAO: a coluna
+de verificacao (Gerente) usa XLOOKUP (`_xlfn.XLOOKUP`) e e copiada para linhas
+novas a CADA run; um `app.calculate()` normal nao religa essa future-function nas
+celulas recem-copiadas -> ficam `#NOME?` e o RefreshTable congela o erro na pivot.
+v4.2.10: o call-site (`atualizar_planilha_excel`) voltou a chamar SEMPRE
+`recalcular(app, full=True)`. A funcao `recalcular` continua suportando ambos os
+modos (testados abaixo); a App roda em modo manual e os metodos Calculate* forcam
+o calculo mesmo assim.
 """
 import pytest
 
