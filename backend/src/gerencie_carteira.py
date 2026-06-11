@@ -560,9 +560,9 @@ def reinjetar_procx(wb, config: configparser.ConfigParser,
     return inseridos
 
 
-def recalcular(app, *, full: bool) -> None:
+def recalcular(app, *, full: bool, timeout: float = 30.0) -> None:
     """
-    Recalcula o workbook e espera o calculo assincrono terminar.
+    Recalcula o workbook e ESPERA o calculo assentar antes de retornar.
 
     `full=True` -> `CalculateFullRebuild`: reconstroi a arvore de dependencias
     INTEIRA. Necessario apos mudanca ESTRUTURAL (ex.: `ListRows.Add` no PROCX em
@@ -576,10 +576,20 @@ def recalcular(app, *, full: bool) -> None:
     no caso comum (dia sem orfaos).
 
     Ambos forcam o calculo mesmo com a App em modo MANUAL (os metodos Calculate*
-    ignoram o modo de calculo). `CalculateUntilAsyncQueriesDone` garante que
-    nenhum calculo assincrono fique pendente. Tudo guardado: falhas de COM nao
-    derrubam o pipeline.
+    ignoram o modo de calculo).
+
+    CINTO (anti-`#NOME?` na pivot): `CalculateFullRebuild` pode DEVOLVER o controle
+    ao COM ANTES de a propagacao multithread terminar — em maquinas mais lentas ou
+    Excel diferente do dev, o `RefreshTable` que vem logo depois fotografa o
+    `#NOME?` transitorio para o cache da pivot (sintoma: a copia publica abre com a
+    tabela dinamica quebrada ate alguem clicar "Atualizar"). O
+    `CalculateUntilAsyncQueriesDone` so espera QUERIES externas, nao o recalculo
+    de formulas. Por isso aguardamos explicitamente
+    `Application.CalculationState == xlDone` antes de
+    retornar (e, portanto, antes de `atualizar_pivots`). Tudo guardado: falhas de
+    COM nao derrubam o pipeline.
     """
+    XL_DONE = 0  # xlCalculationState: 0=xlDone, 1=xlCalculating, 2=xlPending
     try:
         if full:
             app.api.CalculateFullRebuild()
@@ -591,10 +601,29 @@ def recalcular(app, *, full: bool) -> None:
             app.calculate()
         except Exception:
             pass
-    try:
-        app.api.CalculateUntilAsyncQueriesDone()
-    except Exception:
-        pass
+
+    # Espera o calculo assentar (xlDone). Limitado por `timeout` para nunca
+    # travar o pipeline; ao estourar, emite warning e segue.
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            app.api.CalculateUntilAsyncQueriesDone()
+        except Exception:
+            pass
+        try:
+            estado = int(app.api.CalculationState)
+        except Exception:
+            # Sem como inspecionar o estado -> nao da para esperar com seguranca
+            break
+        if estado == XL_DONE:
+            break
+        if time.monotonic() >= deadline:
+            emit("warning",
+                 f"Calculo nao assentou em {timeout:.0f}s (state={estado}); "
+                 "prosseguindo — a pivot pode precisar de refresh manual",
+                 step="excel.calc.timeout")
+            break
+        time.sleep(0.2)
 
 
 def atualizar_pivots(wb) -> int:
