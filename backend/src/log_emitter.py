@@ -92,7 +92,14 @@ def emit(
         payload["progress"] = progress
     if data is not None:
         payload["data"] = data
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    # ensure_ascii=True: escapa nao-ASCII como \uXXXX, deixando a linha 100% ASCII
+    # na rede. CRITICO: o exe PyInstaller ignora PYTHONIOENCODING nos std streams e
+    # escreve stdout em cp1252 (mesmo sintoma do mojibake de stdin corrigido na
+    # v4.1.1). Com ensure_ascii=False, paths acentuados (ex.: "...GERENCIE CARTEIRA
+    # PUBLICA..." com U-agudo) saiam em cp1252 e o readline do main.ts (UTF-8) os
+    # corrompia -> fs.existsSync/whitelist falhavam -> "Abrir Planilha" morria em
+    # silencio. Com ASCII puro, a codepage do stdout do exe deixa de importar.
+    sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
     sys.stdout.flush()
 
 

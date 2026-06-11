@@ -193,7 +193,20 @@ export function useScriptRunner() {
 
   const openSpreadsheet = useCallback(async () => {
     if (!state.spreadsheetPath) return;
-    await window.electronAPI.openFile(state.spreadsheetPath);
+    const res = await window.electronAPI.openFile(state.spreadsheetPath);
+    if (!res.ok) {
+      // Antes a falha era engolida: o botao "nao fazia nada". Agora o motivo
+      // (path_not_allowed | file_not_found | erro do SO) aparece no log.
+      dispatch({
+        type: "log",
+        ev: {
+          level: "error",
+          ts: new Date().toISOString(),
+          msg: `Nao foi possivel abrir a planilha (${(res as { reason: string }).reason}): ${state.spreadsheetPath}`,
+          step: "open.error",
+        },
+      });
+    }
   }, [state.spreadsheetPath]);
 
   const submitGerentes = useCallback(async (mapping: Record<string, string>) => {
