@@ -1,5 +1,5 @@
 # MetaSpec — Gerencie Carteira
-> Contexto para agentes AI. Versao: 2.0 | Atualizado: 2026-06-09
+> Contexto para agentes AI. Versao: 2.0 | Atualizado: 2026-06-11
 
 ## IDENTIDADE
 
@@ -75,6 +75,7 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 ### Protocolo JSON Lines (Python → UI)
 - `emit()` escreve EXATAMENTE 1 linha JSON valida em stdout (flush imediato); `emit_result()` e o evento terminal (`step: "done"`, `data.result.{status, spreadsheet_path}`)
 - Qualquer `print()` solto corrompe o stream — todo output passa por `emit()`
+- Wire 100% ASCII (`json.dumps(ensure_ascii=False` PROIBIDO → usar `ensure_ascii=True`): o exe PyInstaller ignora `PYTHONIOENCODING` e escreve stdout em cp1252; nao-ASCII bruto (ex.: `Ú` de `PÚBLICA` nos paths) e corrompido pelo readline UTF-8 do `main.ts` → `fs.existsSync`/whitelist falham (quebrou "Abrir Planilha")
 - Linhas nao-parseaveis viram `level: warning` na UI; stderr vira `level: error`. NUNCA derrubam a UI
 - Canal reverso (v4.x): `input_bridge.request_input()` emite o request via `emit()` e bloqueia em `sys.stdin.readline()`; a UI escreve 1 linha JSON no `child.stdin` (IPC `script:provideInput`). stdin do spawn deixou de ser `ignore`
 
@@ -102,7 +103,7 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 
 ### Planilhas Excel / escrita transacional
 - Arquivos DEVEM ser `.xlsm` (preservar macros VBA). A App roda em calculo MANUAL durante a automacao (open/edicoes mais rapidos); restaurar AUTOMATICO antes de salvar — a copia publica deve abrir recalculando p/ o gestor
-- `recalcular(app, full=True)` (CalculateFullRebuild) roda SEMPRE antes de ler a verificacao e antes das pivots. A coluna de verificacao (Gerente) usa XLOOKUP — gravada no `.xlsm` como future-function `_xlfn.XLOOKUP` e copiada p/ as linhas novas a CADA run; um `app.calculate()` normal NAO religa esse token nas celulas recem-copiadas → ficam `#NOME?` e o `RefreshTable` congela o erro no cache da pivot. So o full rebuild re-parseia e resolve (a funcao `recalcular` ainda aceita `full=False`, nao usado no pipeline)
+- `recalcular(app, full=True)` (CalculateFullRebuild) roda SEMPRE antes de ler a verificacao e antes das pivots. A coluna de verificacao (Gerente) usa XLOOKUP — gravada no `.xlsm` como future-function `_xlfn.XLOOKUP` e copiada p/ as linhas novas a CADA run; um `app.calculate()` normal NAO religa esse token nas celulas recem-copiadas → ficam `#NOME?` e o `RefreshTable` congela o erro no cache da pivot. So o full rebuild re-parseia e resolve (a funcao `recalcular` ainda aceita `full=False`, nao usado no pipeline). `recalcular` espera `Application.CalculationState == xlDone` (timeout 30s) ANTES de retornar: o `CalculateFullRebuild` devolve o controle ao COM antes de a propagacao terminar em maquinas mais lentas e o `RefreshTable` fotografava o `#NOME?` transitorio (`CalculateUntilAsyncQueriesDone` so espera queries externas)
 - Formula VLOOKUP da coluna de verificacao (`config [Excel] coluna_verificacao`, default `E`) copiada da linha anterior (evita `#REF`)
 - Base nunca sobrescrita in-place (zero-copy backup). Duas fases (o Excel mantem lock enquanto aberto): `escrever_parcial(wb, destino)` salva `<dest>.partial.<ext>` com o Excel ABERTO; `promover(parcial, destino)` faz `os.replace` (com retry) SO apos `wb.close()`/`app.quit()`. Colisao usa `<dest>.bak.<ext>`
 - Publico: `escrever_parcial` (Excel aberto) → fecha → `limpar_publico_antigos()` remove `Gerencie*.xls*` → `promover()` (sem janela de destruicao)
@@ -114,15 +115,16 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.10 — 09/06/2026)
+## ESTADO ATUAL (v4.2.12 — 11/06/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com fonte unica `app/package.json`. **Linha v4** madura: captura de orfaos em runtime + escrita transacional zero-copy, refresh de pivots, retencao de backups e distribuicao pela pasta de rede. Fase recente foca em correcao e performance (v4.2.7–v4.2.10): pivot `#NOME?`/PROCX, fetch do Outlook via `Restrict`, instrumentacao de timing, launcher copia-para-local, calculo manual e full rebuild incondicional. **Trabalho recente vive na branch `fix/Consertando-Planilha` (v4.2.10 publicada; ainda sem merge em `main`).**
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com fonte unica `app/package.json`. **Linha v4** madura: captura de orfaos em runtime + escrita transacional zero-copy, refresh de pivots, retencao de backups e distribuicao pela pasta de rede. Fase recente foca em correcao e performance (v4.2.7–v4.2.12): pivot `#NOME?`/PROCX, fetch do Outlook via `Restrict`, instrumentacao de timing, launcher copia-para-local, calculo manual, espera de `xlDone` antes das pivots e wire JSON Lines em ASCII puro. **Trabalho recente vive na branch `fix/Consertando-Planilha` (v4.2.12 publicada na rede; ainda sem merge em `main`; tags v4.x comecam em v4.2.11).**
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
 - Canal stdin bidirecional (`input_bridge`); DIRECIONA totalmente removido (codigo + config)
 - Escrita transacional zero-copy em duas fases (`escrever_parcial` + `promover` apos fechar o Excel); base nunca sobrescrita in-place
-- Refresh automatico de TODAS as PivotTables apos a colagem e antes do save (`atualizar_pivots`); a copia publica sai ja atualizada. Pivot `#NOME?` resolvida por `CalculateFullRebuild` incondicional antes do refresh — o XLOOKUP da coluna Gerente exige re-parse a cada run (ver REGRAS)
+- Refresh automatico de TODAS as PivotTables apos a colagem e antes do save (`atualizar_pivots`); a copia publica sai ja atualizada. Pivot `#NOME?` resolvida por `CalculateFullRebuild` incondicional + espera de `CalculationState == xlDone` antes do refresh — o XLOOKUP da coluna Gerente exige re-parse a cada run e o rebuild nao termina sincronicamente em maquinas lentas (ver REGRAS)
+- Botao "Abrir Planilha" funcional: wire JSON Lines em ASCII puro (`ensure_ascii=True`) preserva paths acentuados da rede (`PÚBLICA`) apesar do stdout cp1252 do exe; `openSpreadsheet` agora exibe o motivo de qualquer falha de abertura no log (ver REGRAS)
 - Reinjecao de orfaos no PROCX preenche tambem as colunas de FORMULA (Razao Social/CNPJ Numeros/Raiz) replicando a linha anterior — `ListRows.Add` so autopreenche colunas calculadas registradas
 - Fetch do Outlook via `Items.Restrict` (filtro server-side por nao-lido) — antes era varredura O(N) da Inbox (lento em caixa grande/compartilhada); fallback p/ varredura se o Restrict falhar
 - Instrumentacao de tempo por etapa: `log_emitter` mantem timeline em memoria e cada run grava `timings_<run>.json` em `data/logs` (best-effort)
@@ -140,4 +142,4 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com
 - Falha de `wb.save()` apos input do usuario perde o que foi digitado (e-mails seguem nao lidos → rerun re-solicita)
 - Sem testes de UI (Vitest) nem E2E real com Outlook; smoke E2E nao executado
 - `atualizar_planilha_excel()` cresceu (~7 responsabilidades), sem refatorar
-- O fix do `#NOME?` (v4.2.10, full rebuild incondicional) foi diagnosticado por forense cruzada das planilhas + timings e coberto por testes unitarios (COM mockado), mas o caminho real Excel/COM nao tem teste de integracao — confirmar na proxima rodada da mesa via `timings_<run>.json` + pivot limpa num dia SEM orfao
+- Os fixes ambientais v4.2.11 (`#NOME?`/espera de `xlDone`) e v4.2.12 ("Abrir Planilha"/ASCII) so reproduzem nas maquinas do cadastro (Excel 2019), nao no dev; cobertos por testes unitarios (COM mockado / wire ASCII) mas sem teste no caminho real Excel-COM/exe congelado — confirmar na proxima rodada da mesa (pivot limpa sem "Atualizar" + botao abre a planilha)

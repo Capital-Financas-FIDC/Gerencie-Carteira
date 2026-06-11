@@ -43,15 +43,17 @@
 - MINOR v4.2.8: instrumentacao de tempo por etapa (`timings_<run>.json`); launcher `.cmd` copia o app p/ `%LOCALAPPDATA%` e roda local, recopiando so quando `versao.txt` muda (evita stream pela rede a cada uso)
 - PATCH v4.2.9: calculo MANUAL na automacao (open/edicoes mais rapidos) + `recalcular(full=...)` — full rebuild SO com orfaos, senao Calculate normal; restaura AUTOMATICO antes de salvar (copia publica recalcula p/ o gestor)
 - PATCH v4.2.10: corrige regressao da v4.2.9 — o rebuild condicional deixava todo dia SEM orfao com a pivot inteira em `#NOME?`. A coluna Gerente usa XLOOKUP (`_xlfn.XLOOKUP`) copiada p/ linhas novas a cada run; `app.calculate()` normal nao religa o token -> `#NOME?` congelado no cache da pivot. `recalcular(app, full=True)` volta a ser incondicional. Diagnostico por forense cruzada das planilhas 06/06 (full rebuild, limpa) vs 06/09 (calculate, 30x `#NAME?`) + timings
+- PATCH v4.2.11: `#NOME?` persistia nas maquinas do cadastro (Excel 2019) mesmo com o full rebuild — corrida de timing. `CalculateFullRebuild` devolve o controle ao COM ANTES de a propagacao multithread terminar em maquina lenta; o `RefreshTable` seguinte fotografa o `#NOME?` transitorio (`CalculateUntilAsyncQueriesDone` so espera queries externas). Fix: `recalcular` polla `Application.CalculationState` ate `xlDone` (timeout 30s) antes de retornar. Confirmado que o XLOOKUP calcula no Excel 2019 (nao e incompat. de versao)
+- PATCH v4.2.12: botao "Abrir Planilha" morria em silencio. `log_emitter` usava `json.dumps(ensure_ascii=False)`; o exe PyInstaller ignora `PYTHONIOENCODING` e escreve stdout em cp1252 (mesmo sintoma do mojibake de stdin da v4.1.1), entao o `Ú` de `...GERENCIE CARTEIRA PÚBLICA...` chegava corrompido ao readline UTF-8 do `main.ts` -> `fs.existsSync`/whitelist falhavam e o React engolia o erro. Fix: `ensure_ascii=True` (wire ASCII puro, codepage do stdout irrelevante) + `openSpreadsheet` exibe o motivo da falha no log. Quebrou na v4.2.0, quando os paths migraram p/ a pasta de rede acentuada
 
-## Metricas Snapshot (2026-06-09)
+## Metricas Snapshot (2026-06-11)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.2.10 |
+| Versao atual | v4.2.12 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~38 (v1.0.0 → v4.2.10, lineares no mesmo git) |
+| Releases historicas | ~40 (v1.0.0 → v4.2.12, lineares no mesmo git); tags v4.x comecam em v4.2.11 |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~10 suites pytest) |
 | Testes UI | inexistentes |
-| Historico git | remote `Capital-Financas-FIDC/Gerencie-Carteira`; trabalho recente na branch `fix/Consertando-Planilha` (sem merge em `main`) |
+| Historico git | remote `Capital-Financas-FIDC/Gerencie-Carteira`; trabalho recente na branch `fix/Consertando-Planilha` (sem merge em `main`; nao pushada) |
