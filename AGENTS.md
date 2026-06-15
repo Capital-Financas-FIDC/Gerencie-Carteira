@@ -173,6 +173,10 @@ outro arquivo deve hardcodar a versao. Como ela se propaga:
    estado/divida/arquitetura, em `context/metaspec.md` (header: versao + data).
 3. Commit; tag git `vMAJOR.MINOR.PATCH`. Rollback = checkout da tag + rebuild.
 
+**Merge para `main` e exclusivo do usuario.** O agente PODE commitar e taggear
+(inclusive em branches de trabalho), mas NUNCA faz merge para `main` — quem
+integra e sempre o usuario. Trabalho fica na branch atual ate ele mergear.
+
 Nao reintroduzir versao em nomes de arquivo, comentarios de config, README,
 JSX ou strings do Python — todos derivam da fonte unica. (Em particular, o
 exe do Electron NAO pode ser renomeado — ver "Artefatos de build" acima.)
