@@ -33,7 +33,8 @@ function resolvePythonInvocation(): { cmd: string; args: string[]; cwd: string }
       cwd: backendDir,
     };
   }
-  const exePath = path.join(process.resourcesPath, "gerencie_carteira_core.exe");
+  // onedir: o core agora e uma pasta (bootstrap + _internal/) dentro de resources.
+  const exePath = path.join(process.resourcesPath, "gerencie_carteira_core", "gerencie_carteira_core.exe");
   return { cmd: exePath, args: [], cwd: path.dirname(exePath) };
 }
 

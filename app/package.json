@@ -1,7 +1,7 @@
 {
   "name": "gerencie-carteira-app",
   "productName": "Gerencie Carteira",
-  "version": "4.2.13",
+  "version": "4.2.14",
   "description": "Automacao Gerencie Carteira — aplicativo desktop (Electron + React).",
   "main": "dist-electron/main.js",
   "author": "Capital Financas",
@@ -42,8 +42,8 @@
     ],
     "extraResources": [
       {
-        "from": "resources/gerencie_carteira_core.exe",
-        "to": "gerencie_carteira_core.exe"
+        "from": "resources/gerencie_carteira_core",
+        "to": "gerencie_carteira_core"
       },
       {
         "from": "../config/config.ini",

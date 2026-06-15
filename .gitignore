@@ -15,7 +15,9 @@ yarn-error.log*
 build/
 # App empacotado entregue por build-app.ps1 — artefato grande, regeneravel
 /Aplicativo/
-# Core compilado pelo build_core.ps1 — artefato regeneravel, nao versionar
+# Core compilado pelo build_core.ps1 — artefato regeneravel, nao versionar.
+# onedir: pasta com o bootstrap + _internal/ (antes era um .exe onefile avulso)
+app/resources/gerencie_carteira_core/
 app/resources/gerencie_carteira_core.exe
 *.spec
 

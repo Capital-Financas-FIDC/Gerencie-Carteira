@@ -906,11 +906,15 @@ def main() -> None:
     emit("info", f"Iniciando Gerencie Carteira v{versao}", step="boot",
          data={"version": versao})
 
-    # Config
-    config_file = (base_path.parent.parent / "config" / "config.ini").resolve()
-    if not config_file.exists():
-        # Fallback para runtime empacotado (PyInstaller): config ao lado do .exe
-        config_file = base_path / "config" / "config.ini"
+    # Config — procura em layouts conhecidos: dev (raiz do repo), empacotado
+    # onefile (config ao lado do .exe em resources/) e onedir (o .exe vive em
+    # resources/<core>/, com o config um nivel acima em resources/).
+    cfg_candidatos = [
+        (base_path.parent.parent / "config" / "config.ini").resolve(),  # dev: backend/src -> repo/config
+        base_path / "config" / "config.ini",                            # onefile: resources/config
+        base_path.parent / "config" / "config.ini",                     # onedir: resources/<core>/.. -> resources/config
+    ]
+    config_file = next((c for c in cfg_candidatos if c.exists()), cfg_candidatos[0])
     config = carregar_configuracoes(str(config_file))
 
     # Bootstrap workspace — a raiz de trabalho deriva do config.ini ([Paths]):
