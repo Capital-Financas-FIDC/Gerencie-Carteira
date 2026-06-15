@@ -37,8 +37,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $origem "Gerencie Carteira.exe"))) {
 }
 
 # Marcador de versao: o launcher .cmd compara este arquivo (share) com a copia
-# local p/ decidir quando recopiar. Gravado em $origem ANTES do /MIR p/ a rede,
-# entao viaja junto no espelhamento (e e recopiado p/ o local pelo launcher).
+# local p/ decidir quando recopiar. Gravado em $origem e espelhado p/ a rede no
+# /MIR abaixo. No LADO LOCAL o launcher grava o marcador POR ULTIMO (apos a copia
+# inteira concluir) — uma copia interrompida nao carimba a versao e a proxima
+# abertura recopia sozinha.
 Set-Content -LiteralPath (Join-Path $origem "versao.txt") -Value $versao -Encoding ascii -NoNewline
 
 # [3/5] Verifica a rede
@@ -91,12 +93,17 @@ goto inicia
 
 :copia
 echo Preparando aplicativo local (versao %SVER%)... aguarde.
-robocopy "%SHARE%" "%LOCAL%" /MIR /R:3 /W:3 /NFL /NDL /NJH /NJS /NP >nul
+REM O marcador versao.txt fica FORA do espelhamento (/XF) e e gravado por ULTIMO,
+REM so apos a copia inteira concluir. Se a janela for fechada no meio, o marcador
+REM local nao e atualizado -> a proxima abertura detecta a divergencia e recopia.
+robocopy "%SHARE%" "%LOCAL%" /MIR /XF versao.txt /R:3 /W:3 /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 (
   echo Falha ao copiar do share; abrindo direto da rede...
   start "" "%SHARE%\%EXE%"
   goto fim
 )
+REM Copia integra concluida: agora sim carimba a versao local.
+copy /Y "%SHARE%\versao.txt" "%LOCAL%\versao.txt" >nul
 
 :inicia
 if not exist "%LOCAL%\%EXE%" (
