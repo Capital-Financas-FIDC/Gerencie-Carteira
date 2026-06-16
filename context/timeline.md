@@ -14,7 +14,7 @@
 - Empacotamento via PyInstaller; v2.14.1 consolidada como release operacional estavel
 - v2.14.1 mantida intocada como fallback paralelo ao migrar para v3
 
-## Fase 2: Migracao Electron + correcao/performance (v3.0.0 → v4.2.10) — atual
+## Fase 2: Migracao Electron + correcao/performance (v3.0.0 → v4.2.14) — atual
 
 - MAJOR v3.0.0: CLI Rich substituida por protocolo JSON Lines (stdout) consumido por shell Electron + React
 - Bootstrap idempotente do workspace `%USERPROFILE%\Documents\Gerencie_Carteira\`; defaults universais via `%USERPROFILE%`
@@ -45,15 +45,17 @@
 - PATCH v4.2.10: corrige regressao da v4.2.9 — o rebuild condicional deixava todo dia SEM orfao com a pivot inteira em `#NOME?`. A coluna Gerente usa XLOOKUP (`_xlfn.XLOOKUP`) copiada p/ linhas novas a cada run; `app.calculate()` normal nao religa o token -> `#NOME?` congelado no cache da pivot. `recalcular(app, full=True)` volta a ser incondicional. Diagnostico por forense cruzada das planilhas 06/06 (full rebuild, limpa) vs 06/09 (calculate, 30x `#NAME?`) + timings
 - PATCH v4.2.11: `#NOME?` persistia nas maquinas do cadastro (Excel 2019) mesmo com o full rebuild — corrida de timing. `CalculateFullRebuild` devolve o controle ao COM ANTES de a propagacao multithread terminar em maquina lenta; o `RefreshTable` seguinte fotografa o `#NOME?` transitorio (`CalculateUntilAsyncQueriesDone` so espera queries externas). Fix: `recalcular` polla `Application.CalculationState` ate `xlDone` (timeout 30s) antes de retornar. Confirmado que o XLOOKUP calcula no Excel 2019 (nao e incompat. de versao)
 - PATCH v4.2.12: botao "Abrir Planilha" morria em silencio. `log_emitter` usava `json.dumps(ensure_ascii=False)`; o exe PyInstaller ignora `PYTHONIOENCODING` e escreve stdout em cp1252 (mesmo sintoma do mojibake de stdin da v4.1.1), entao o `Ú` de `...GERENCIE CARTEIRA PÚBLICA...` chegava corrompido ao readline UTF-8 do `main.ts` -> `fs.existsSync`/whitelist falhavam e o React engolia o erro. Fix: `ensure_ascii=True` (wire ASCII puro, codepage do stdout irrelevante) + `openSpreadsheet` exibe o motivo da falha no log. Quebrou na v4.2.0, quando os paths migraram p/ a pasta de rede acentuada
+- PATCH v4.2.13: launcher copia-para-local grava o `versao.txt` POR ULTIMO (fora do `/MIR`, so apos a copia concluir). Antes o marcador (6 bytes, raiz) era espelhado antes do core.exe (168 MB, `resources/`) — fechar a janela no meio deixava a versao "batendo" + exe truncado, e a abertura seguinte pulava a recopia e rodava o exe quebrado (`PYI-12072`). Agora copia interrompida nao carimba a versao -> auto-recopia na proxima abertura
+- PATCH v4.2.14: empacotamento do core migra de PyInstaller `--onefile` p/ `--onedir`. O onefile re-extraia ~168 MB p/ `%TEMP%` a CADA execucao (minutos em maquina lenta + AV escaneando); o onedir deixa a pasta `_internal/` no disco — cold-start medido de ~33s p/ ~3s. `config.ini` resolvido relativo ao exe nos 3 layouts (dev/onefile/onedir); `--noconfirm` no build (onedir recusa sobrescrever pasta nao-vazia). Sem mudanca de contrato
 
-## Metricas Snapshot (2026-06-11)
+## Metricas Snapshot (2026-06-15)
 
 | Metrica | Valor |
 |---------|-------|
-| Versao atual | v4.2.12 |
+| Versao atual | v4.2.14 |
 | Versionamento | SemVer; fonte unica `app/package.json`; repo unico |
-| Releases historicas | ~40 (v1.0.0 → v4.2.12, lineares no mesmo git); tags v4.x comecam em v4.2.11 |
+| Releases historicas | ~40 (v1.0.0 → v4.2.14, lineares no mesmo git); tags v4.x comecam em v4.2.11 |
 | Linguagens | Python (core), TypeScript/React (UI) |
 | Testes backend | passing (~10 suites pytest) |
 | Testes UI | inexistentes |
-| Historico git | remote `Capital-Financas-FIDC/Gerencie-Carteira`; trabalho recente na branch `fix/Consertando-Planilha` (sem merge em `main`; nao pushada) |
+| Historico git | remote `Capital-Financas-FIDC/Gerencie-Carteira`; `main` em v4.2.13; v4.2.14 na branch `fix/Melhorando-performance-(v4.2.14)` (sem merge em `main`; nao pushada) |

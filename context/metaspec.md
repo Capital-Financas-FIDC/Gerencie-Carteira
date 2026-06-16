@@ -19,7 +19,7 @@ Parsing:            BeautifulSoup4 (HTML do Serasa)
 Dados:              pandas (DataFrames)
 IPC:                child_process.spawn (Node); JSON Lines (stdout) + canal stdin (input UI->Python)
 Tema:               prefers-color-scheme (CSS vars)
-Build:              PyInstaller (core.exe) + electron-builder (--dir); deploy via publicar.ps1
+Build:              PyInstaller --onedir (core e pasta, nao exe unico) + electron-builder (--dir); deploy via publicar.ps1
 Testes:             pytest (backend); UI sem testes automatizados
 Versionamento:      SemVer; fonte unica = app/package.json; repo unico
 ```
@@ -115,9 +115,9 @@ Nao aplicavel. Roda com a sessao Windows logada; Outlook COM usa o perfil ativo 
 - Entrypoint `backend/src/gerencie_carteira.py` tem nome estavel — nao re-versionar arquivos
 - Toda alteracao funcional bumpa a versao (MAJOR/MINOR/PATCH). Checklist completo em `AGENTS.md > Versionamento`
 
-## ESTADO ATUAL (v4.2.12 — 11/06/2026)
+## ESTADO ATUAL (v4.2.14 — 15/06/2026)
 
-Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com fonte unica `app/package.json`. **Linha v4** madura: captura de orfaos em runtime + escrita transacional zero-copy, refresh de pivots, retencao de backups e distribuicao pela pasta de rede. Fase recente foca em correcao e performance (v4.2.7–v4.2.12): pivot `#NOME?`/PROCX, fetch do Outlook via `Restrict`, instrumentacao de timing, launcher copia-para-local, calculo manual, espera de `xlDone` antes das pivots e wire JSON Lines em ASCII puro. **Trabalho recente vive na branch `fix/Consertando-Planilha` (v4.2.12 publicada na rede; ainda sem merge em `main`; tags v4.x comecam em v4.2.11).**
+Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com fonte unica `app/package.json`. **Linha v4** madura: captura de orfaos em runtime + escrita transacional zero-copy, refresh de pivots, retencao de backups e distribuicao pela pasta de rede. Fase recente foca em correcao e performance (v4.2.7–v4.2.14): pivot `#NOME?`/PROCX, fetch do Outlook via `Restrict`, calculo manual, espera de `xlDone` antes das pivots, wire JSON Lines em ASCII puro, launcher anti-copia-corrompida e empacotamento PyInstaller onedir (boot de minutos para segundos). **`main` esta em v4.2.13; v4.2.14 vive na branch `fix/Melhorando-performance-(v4.2.14)`, publicada na rede mas sem merge em `main` (merge e exclusivo do usuario — ver AGENTS.md).**
 
 **Pronto:**
 - Captura de gerentes orfaos em runtime: PROCX → orfaos → formulario Electron (stdin) → reinjecao no PROCX → colagem sem `#N/D`
@@ -132,7 +132,8 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com
 - `UnRead=False` adiado para apos o save (janela de perda reduzida)
 - Cascata da planilha base + auto-rerun via dialog Electron (exit 4) inalterada
 - Retencao automatica: `planilhas` e `html` limitadas a N arquivos (`config [Retencao] max_arquivos`, default 30 ~ 1 mes); os mais antigos sao removidos apos cada save
-- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede + marcador `versao.txt`; `.exe` mantem nome neutro (rename quebra ASAR integrity no Electron 33). O `.cmd` na pasta-pai e um launcher copia-para-local: copia o app p/ `%LOCALAPPDATA%` UMA vez por versao (compara `versao.txt`) e roda do disco local — abre instantaneo, sem stream de rede a cada uso
+- Distribuicao via `publicar.ps1`: build espelhado para `Software\Aplicativo` na rede + marcador `versao.txt`; `.exe` mantem nome neutro (rename quebra ASAR integrity no Electron 33). O `.cmd` na pasta-pai e um launcher copia-para-local: copia o app p/ `%LOCALAPPDATA%` UMA vez por versao (compara `versao.txt`) e roda do disco local — abre instantaneo, sem stream de rede a cada uso. v4.2.13: grava o `versao.txt` local POR ULTIMO (fora do `/MIR`, so apos a copia concluir) — copia interrompida nao carimba a versao e auto-recopia na proxima abertura
+- Core via PyInstaller `--onedir` (v4.2.14): pasta `gerencie_carteira_core/` (bootstrap + `_internal/`) em vez de exe onefile — sem extracao de ~168 MB ao `%TEMP%` a cada run; cold-start medido ~33s → ~3s. `config.ini` resolvido relativo ao exe nos 3 layouts (dev/onefile/onedir); `--noconfirm` no build (onedir recusa sobrescrever pasta nao-vazia)
 - pytest passing (todas as suites do core Python)
 - Electron 33 + React 18 + Vite 5; tsc/Vite limpos
 
@@ -142,4 +143,4 @@ Repo unico em git (remote `Capital-Financas-FIDC/Gerencie-Carteira`), SemVer com
 - Falha de `wb.save()` apos input do usuario perde o que foi digitado (e-mails seguem nao lidos → rerun re-solicita)
 - Sem testes de UI (Vitest) nem E2E real com Outlook; smoke E2E nao executado
 - `atualizar_planilha_excel()` cresceu (~7 responsabilidades), sem refatorar
-- Os fixes ambientais v4.2.11 (`#NOME?`/espera de `xlDone`) e v4.2.12 ("Abrir Planilha"/ASCII) so reproduzem nas maquinas do cadastro (Excel 2019), nao no dev; cobertos por testes unitarios (COM mockado / wire ASCII) mas sem teste no caminho real Excel-COM/exe congelado — confirmar na proxima rodada da mesa (pivot limpa sem "Atualizar" + botao abre a planilha)
+- Os fixes ambientais v4.2.11–v4.2.14 (`#NOME?`/`xlDone`, "Abrir Planilha"/ASCII, launcher anti-copia-corrompida, onedir) so reproduzem/validam nas maquinas do cadastro (Excel 2019, AV, rede lenta), nao no dev; cobertos por testes unitarios + validacao local (build/cold-start/config) mas sem confirmacao no caminho real congelado — confirmar na mesa (pivot limpa, botao abre planilha, recopia + boot rapido do onedir)
