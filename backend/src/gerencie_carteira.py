@@ -661,6 +661,109 @@ def atualizar_pivots(wb) -> int:
     return total
 
 
+def _split_top_level(s: str) -> list[str]:
+    """Divide `s` nas virgulas de nivel 0, respeitando `()`, `[]` e aspas. Usado
+    para separar os argumentos de uma chamada de funcao do Excel sem quebrar em
+    virgulas internas (ex.: refs estruturadas `Tabela2_1[CNPJ]`)."""
+    partes: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    in_str = False
+    for ch in s:
+        if ch == '"':
+            in_str = not in_str
+            buf.append(ch)
+        elif in_str:
+            buf.append(ch)
+        elif ch in "([":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            partes.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    partes.append("".join(buf))
+    return partes
+
+
+def xlookup_para_index_match(formula: str, *, linha_alvo: int = 2) -> Optional[str]:
+    """
+    Converte `=XLOOKUP(busca, array_busca, array_retorno[, ...])` em
+    `=INDEX(array_retorno, MATCH(busca, array_busca, 0))`, preservando as
+    referencias (inclusive estruturadas, ex.: `Tabela2_1[CNPJ]`). A linha do
+    valor de busca (ex.: `$A8815`) e reescrita para `linha_alvo` — assim a
+    formula pode ser atribuida ao topo da coluna e o Excel ajusta as refs
+    relativas linha a linha.
+
+    Por que: o template grava a coluna de gerente como `_xlfn.XLOOKUP` (future-
+    function). Nas maquinas do cadastro esse token NAO re-linka no
+    `CalculateFullRebuild` em processo (xlwings) -> a coluna inteira vira `#NOME?`
+    e o `RefreshTable` congela o erro no cache da pivot (copia publica abre com a
+    tabela dinamica quebrada; a coluna se cura sozinha so quando alguem abre o
+    arquivo). INDEX/MATCH e nativo (sem prefixo `_xlfn`), resolve em qualquer
+    Excel e tambem no rebuild em processo -> elimina a classe do bug. VLOOKUP nao
+    serve: no PROCX o Gerente (col B) fica A ESQUERDA do CNPJ (col C).
+
+    Retorna None se `formula` nao for um XLOOKUP parseavel (ja migrada para
+    INDEX/MATCH, formula custom, vazia) — o caller cai no comportamento antigo.
+    """
+    if not formula or not formula.lstrip().startswith("="):
+        return None
+    corpo = formula.strip()[1:].lstrip()
+    corpo = re.sub(r"^_xlfn\.", "", corpo, flags=re.IGNORECASE)
+    m = re.match(r"(?is)^XLOOKUP\s*\((.*)\)\s*$", corpo)
+    if not m:
+        return None
+    args = _split_top_level(m.group(1))
+    if len(args) < 3:
+        return None
+    busca = args[0].strip()
+    arr_busca = args[1].strip()
+    arr_ret = args[2].strip()
+    # Reescreve a linha da ref de busca (ex.: $A8815 -> $A{linha_alvo}). So mexe
+    # se a busca for uma unica referencia de celula; senao mantem como esta.
+    if re.fullmatch(r"\$?[A-Za-z]{1,3}\$?\d+", busca):
+        busca = re.sub(r"(\$?[A-Za-z]{1,3}\$?)\d+",
+                       lambda mm: mm.group(1) + str(linha_alvo), busca)
+    return f"=INDEX({arr_ret},MATCH({busca},{arr_busca},0))"
+
+
+# Formas de erro do Excel por categoria — aceita ingles (#NAME?) e pt-BR (#NOME?).
+_ERRO_BUCKETS = {
+    "NOME": ("#NAME?", "#NOME?"),
+    "NA": ("#N/A", "#N/D"),
+    "REF": ("#REF!", "#REF"),
+    "VALOR": ("#VALUE!", "#VALOR!"),
+    "DIV": ("#DIV/0!",),
+    "NUM": ("#NUM!", "#NUM", "#NUM!"),
+    "NULO": ("#NULL!", "#NULO!"),
+}
+
+
+def classificar_erros(valores) -> dict:
+    """
+    Conta valores de erro do Excel por categoria (NOME/NA/REF/VALOR/...). Aceita
+    formas em ingles e pt-BR; valores nao-erro sao ignorados; erros desconhecidos
+    caem em 'OUTRO'. Distingue `#NOME?` (formula nao resolveu — catastrofico) de
+    `#N/D` (CNPJ sem cadastro — rotineiro), que o flag `pendencias` misturava.
+    """
+    cont: dict = {}
+    for v in valores:
+        if not (isinstance(v, str) and v.startswith("#")):
+            continue
+        cat = "OUTRO"
+        for nome_cat, formas in _ERRO_BUCKETS.items():
+            if v in formas:
+                cat = nome_cat
+                break
+        cont[cat] = cont.get(cat, 0) + 1
+    return cont
+
+
 def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser,
                              caminho_base_excel: str) -> tuple[str, bool]:
     """
@@ -698,7 +801,13 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
             app.api.Calculation = -4135  # xlCalculationManual
         except Exception:
             pass
-        emit("info", "Excel iniciado", step="excel.app")
+        try:
+            versao_excel = str(app.api.Version)
+            emit("info", f"Excel {versao_excel} iniciado (calculo manual)",
+                 step="excel.app", data={"excel_version": versao_excel})
+            logging.info("Excel da automacao: versao %s", versao_excel)
+        except Exception:
+            emit("info", "Excel iniciado", step="excel.app")
         wb = app.books.open(caminho_base_excel)
         try:
             app.api.Calculation = -4135  # reassegura apos o open (o wb pode repor)
@@ -735,31 +844,95 @@ def atualizar_planilha_excel(df: pd.DataFrame, config: configparser.ConfigParser
 
         ult_linha_nova = primeira_linha_vazia + len(df) - 1
 
-        # Copia a formula VLOOKUP para as novas linhas (evita #REF)
+        # Coluna de verificacao (Gerente): garante INDEX/MATCH nativo nas linhas.
+        # Se a formula de origem ainda for XLOOKUP (`_xlfn.XLOOKUP`), converte e
+        # reescreve a COLUNA INTEIRA (linhas 2..ult) — isso CURA tambem as linhas
+        # legadas que ficaram `#NOME?` nas maquinas do cadastro (ver
+        # xlookup_para_index_match). Atribuir uma unica formula (com `$A2`) a um
+        # range multi-celula faz o Excel ajustar as refs relativas por linha; as
+        # refs estruturadas do PROCX (absolutas) permanecem fixas. Se a origem ja
+        # estiver migrada (INDEX/MATCH) ou for custom -> mantem o comportamento
+        # antigo, copiando a formula de origem so para as linhas novas.
         linha_origem = primeira_linha_vazia - 1
         origem = ws.range(f"{col_verificacao}{linha_origem}")
         destino = ws.range(f"{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}")
-        origem.copy(destino)
+        formula_im = xlookup_para_index_match(origem.formula, linha_alvo=2)
+        if formula_im:
+            try:
+                ws.range(
+                    f"{col_verificacao}2:{col_verificacao}{ult_linha_nova}"
+                ).formula = formula_im
+                emit("step",
+                     "Coluna de verificacao migrada de XLOOKUP para INDEX/MATCH "
+                     f"(linhas 2..{ult_linha_nova})",
+                     step="excel.formula.migrada",
+                     data={"de": "XLOOKUP", "para": "INDEX/MATCH",
+                           "ate_linha": int(ult_linha_nova)})
+                logging.info("Coluna '%s' migrada XLOOKUP->INDEX/MATCH ate linha %d",
+                             col_verificacao, ult_linha_nova)
+            except Exception as e:
+                emit("warning",
+                     f"Falha ao migrar coluna para INDEX/MATCH ({e}); "
+                     "copiando a formula de origem para as linhas novas",
+                     step="excel.formula.migrada.fail")
+                logging.warning("Falha na migracao INDEX/MATCH: %s", e)
+                origem.copy(destino)
+        else:
+            # Steady state (ja INDEX/MATCH) ou formula custom: copia origem -> novas
+            origem.copy(destino)
 
         emit("step", f"{len(df)} linhas inseridas", step="excel.insert",
              data={"count": int(len(df))})
 
         # Recalculo unico antes de ler a coluna de verificacao E das pivots.
-        # SEMPRE full rebuild: a coluna de verificacao (Gerente) e copiada para as
-        # linhas novas a CADA run e usa a future-function XLOOKUP, gravada no
-        # arquivo como `_xlfn.XLOOKUP`. Um `app.calculate()` normal NAO religa esse
-        # token nas celulas recem-copiadas -> elas ficam `#NOME?` e o `RefreshTable`
-        # congela o erro no cache da pivot. So `CalculateFullRebuild` re-parseia e
-        # resolve o XLOOKUP. (Regressao v4.2.9: o rebuild condicional — so com
-        # orfaos — deixava todo dia SEM orfao com a pivot inteira em `#NOME?`.)
+        # SEMPRE full rebuild: ha mudanca ESTRUTURAL a cada run (ListRows.Add no
+        # PROCX quando ha orfaos + reescrita/copia da formula da coluna de
+        # verificacao). Apos a migracao para INDEX/MATCH (nativo), um Calculate
+        # normal ja religaria, mas o full rebuild reconstroi a arvore inteira e
+        # garante que o `RefreshTable` seguinte fotografe valores ja resolvidos —
+        # sem ele a pivot pode congelar um estado transitorio. (Historico: com a
+        # coluna em `_xlfn.XLOOKUP`, so o full rebuild re-parseava o token; v4.2.9
+        # tentou rebuild condicional e deixou a pivot inteira em `#NOME?`.)
         recalcular(app, full=True)
 
-        verificados = ws.range(
-            f"{col_verificacao}{primeira_linha_vazia}:{col_verificacao}{ult_linha_nova}"
+        # Le a coluna de verificacao INTEIRA (nao so as linhas novas) para
+        # diagnostico: confirma que a migracao curou as linhas legadas e separa
+        # `#NOME?` (formula nao resolveu — grave) de `#N/D` (CNPJ sem cadastro —
+        # rotineiro), que o flag `pendencias` antes misturava num warning so.
+        col_vals = ws.range(
+            f"{col_verificacao}2:{col_verificacao}{ult_linha_nova}"
         ).options(err_to_str=True).value
-        if not isinstance(verificados, list):
-            verificados = [verificados]
-        if any(isinstance(v, str) and v.startswith("#") for v in verificados):
+        if not isinstance(col_vals, list):
+            col_vals = [col_vals]
+        cont_erros = classificar_erros(col_vals)
+        n_erros = sum(cont_erros.values())
+        if n_erros:
+            amostra = [i + 2 for i, v in enumerate(col_vals)
+                       if isinstance(v, str) and v.startswith("#")][:10]
+            nivel = "error" if (cont_erros.get("NOME") or cont_erros.get("REF")) else "warning"
+            emit(nivel,
+                 f"Coluna de verificacao: {n_erros} erro(s) {cont_erros}",
+                 step="excel.verificacao.erros",
+                 data={"contagem": cont_erros, "linhas_amostra": amostra,
+                       "total_linhas": len(col_vals)})
+            logging.warning("Coluna verificacao: %d erro(s) %s; amostra linhas %s",
+                            n_erros, cont_erros, amostra)
+            if cont_erros.get("NOME"):
+                emit("error",
+                     f"{cont_erros['NOME']} celula(s) #NOME? — a formula de gerente "
+                     "NAO resolveu neste Excel; a tabela dinamica sairia quebrada",
+                     step="excel.verificacao.nome")
+                logging.error("#NOME? em %d celula(s) da coluna de verificacao — "
+                              "formula nao resolveu neste Excel", cont_erros["NOME"])
+        else:
+            emit("info",
+                 f"Coluna de verificacao OK ({len(col_vals)} linhas, sem erro)",
+                 step="excel.verificacao.ok")
+
+        # pendencias: erro em QUALQUER linha NOVA (mantem a semantica historica do
+        # flag — o save segue, mas a UI avisa).
+        novas = col_vals[primeira_linha_vazia - 2:]
+        if any(isinstance(v, str) and v.startswith("#") for v in novas):
             pendencias = True
 
         # Atualiza tabelas dinamicas com os dados ja recalculados.
